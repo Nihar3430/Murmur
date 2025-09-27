@@ -8,8 +8,23 @@
   "tier2": {
     "spectrogram_window_seconds": 4.0,
     "event_model": "panns_cnn14",
+
     "event_min_confidence": 0.35,
-    "danger_event_labels": ["Screaming", "Gasp", "Cheering", "Applause"]
+
+    "danger_event_labels": [
+      "Screaming",
+      "Gasp",
+      "Gunshot, gunfire"
+    ],
+
+    "safe_event_labels": [
+      "Applause",
+      "Cheering",
+      "Fireworks"
+    ],
+
+    "safe_preempt_threshold": 0.009,
+    "safe_preempt_margin": 0.003
   },
   "nlp": {
     "use_fireworks_asr": true,

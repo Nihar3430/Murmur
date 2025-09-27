@@ -62,7 +62,6 @@ cfg = load_config()
 SR = cfg["audio"]["sample_rate"]
 CHUNK_S = cfg["audio"]["chunk_seconds"]
 SERVER_PORT = 5000
-EVENT_MIN_CONFIDENCE = cfg["tier2"].get("event_min_confidence", 0.35)
 
 # --- GLOBAL ANALYZER STATE ---
 app = Flask(__name__)
@@ -76,6 +75,42 @@ analyzer: ContinuousAnalyzer | None = None
 mic: RingMic | None = None
 running = False
 last_analysis_result: dict | None = None
+
+# ----------------------------------------------------------------------
+# --- DANGER-ONLY Tier-2 helper (≥ 0.01) ---
+# ----------------------------------------------------------------------
+DANGER_LABELS = set(cfg["tier2"].get("danger_event_labels", []))
+
+def _is_danger_label(name: str) -> bool:
+    """Exact match against config + common substrings, case-insensitive."""
+    if not name:
+        return False
+    n = str(name).strip()
+    if n in DANGER_LABELS:
+        return True
+    up = n.upper()
+    return (
+        "SCREAM" in up or
+        "GASP" in up or
+        "GUNSHOT" in up or
+        "GUNFIRE" in up
+    )
+
+def _danger_any_over(res: dict, thresh: float = 0.01) -> bool:
+    """
+    True if any *danger* label score >= thresh
+    Uses event_top_all (preferred) or falls back to event_top.
+    """
+    tops = res.get("event_top_all") or res.get("event_top") or []
+    for t in tops:
+        try:
+            label = t.get("label", "")
+            score = float(t.get("score", 0.0))
+            if _is_danger_label(label) and score >= thresh:
+                return True
+        except Exception:
+            pass
+    return False
 
 # ----------------------------------------------------------------------
 # --- ML ANALYSIS THREAD (UNMODIFIED LOGIC) ---
@@ -192,7 +227,7 @@ def get_analysis():
 
     res = last_analysis_result
 
-    # Safely extract the top event label
+    # Safely extract the top event label for display
     event_top = res.get("event_top", [])
     top_label = event_top[0] if event_top else {"label": "None", "score": 0.0}
 
@@ -206,11 +241,11 @@ def get_analysis():
         "status": "analyzing",
         "risk": float(res['risk']),
         "fired": bool(res['fired']),
-        # Tier 1 Trigger: isJump is derived from ML logic
+        # Tier 1 Trigger: isJump is derived from ML logic (current louder than baseline)
         "isJump": bool(float(res['db']) > float(res['db_baseline'])),
-        # Tier 2 Trigger: Event score meets configured minimum confidence
-        "isEvent": bool(float(top_label.get('score', 0)) >= EVENT_MIN_CONFIDENCE),
-        # Tier 3 Trigger: Any transcribed text was produced AND the text score is high
+        # Tier 2 Trigger: **danger-only** label >= 0.01
+        "isEvent": _danger_any_over(res, 0.01),
+        # Tier 3 Trigger: any transcript + high text score
         "isText": bool(res.get('transcript', '').strip() != "" and float(tx_score) >= cfg["nlp"]["text_high_confidence"]),
         "transcript": str(res.get('transcript', '...')),
         "db": float(res['db']),

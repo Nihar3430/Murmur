@@ -1,5 +1,3 @@
-# murmur/continuous.py
-
 from __future__ import annotations
 import time, threading, queue, os
 import numpy as np
@@ -226,6 +224,12 @@ class ContinuousAnalyzer:
         self.text_override   = cfg["nlp"].get("alert_on_text_high_conf", True)
         self.text_hold_s     = cfg["nlp"].get("text_hold_seconds", 6.0)  # how long a text hit influences risk
 
+        # --- NEW: safe-label preemption (config driven) ---
+        self.safe_labels  = set(cfg["tier2"].get("safe_event_labels", ["Applause","Cheering","Fireworks"]))
+        self.safe_gate    = float(cfg["tier2"].get("safe_preempt_threshold", 0.009))
+        self.safe_margin  = float(cfg["tier2"].get("safe_preempt_margin", 0.003))
+        # ---------------------------------------------------
+
         # state
         self.smooth = deque(maxlen=4)  # ~2s smoothing at 0.5s ticks
         self.cooldown_s = 6.0
@@ -233,13 +237,35 @@ class ContinuousAnalyzer:
         self._warmed = False
 
     def _risk_from_event(self, event_pred: dict) -> float:
+        """
+        Compute Tier-2 risk from PANNs tops, with SAFE preemption.
+
+        - Danger: Screaming/Gasp/Gunshot (by exact list or obvious substring)
+        - Safe preemption: if a safe label (Applause/Cheering/Fireworks) is
+          confident and ahead of danger by a margin, suppress Tier-2 risk (0.0).
+        """
         danger = set(self.cfg["tier2"]["danger_event_labels"])
-        s = 0.0
-        for it in event_pred.get("top_labels", []):
-            lab = it["label"]; sc = float(it["score"])
+
+        danger_max = 0.0
+        safe_max = 0.0
+
+        tops = event_pred.get("top_labels", [])
+        for it in tops:
+            lab = str(it["label"]); sc = float(it["score"])
+
+            # treat these as danger either by exact list or obvious substring
             if any(k in lab for k in ["Scream", "Screaming", "Gunshot", "Gasp"]) or lab in danger:
-                s = max(s, sc)
-        return float(s)
+                danger_max = max(danger_max, sc)
+
+            # safe allowlist (exact or obvious)
+            if (lab in self.safe_labels) or any(k in lab for k in ["Applause", "Cheering", "Fireworks"]):
+                safe_max = max(safe_max, sc)
+
+        # If a safe label is confident AND clearly beats danger, suppress Tier-2 risk
+        if (safe_max >= self.safe_gate) and (safe_max >= danger_max + self.safe_margin):
+            return 0.0
+
+        return float(danger_max)
 
     def _text_score_fresh(self, last_asr: dict | None, now: float) -> tuple[float, str]:
         if not last_asr:
@@ -309,19 +335,42 @@ class ContinuousAnalyzer:
         else:
             print("[ASR-bg] no result yet")
 
+        # --------- Top labels for server/ui ----------
+        # Original tops from the model:
+        ev_top_all = [{"label": str(item["label"]), "score": float(item["score"])}
+                      for item in ev.get("top_labels", [])]
+
+        # Danger-only tops (for driving the mobile 'isEvent' via server.py)
+        danger = set(self.cfg["tier2"]["danger_event_labels"])
+        danger_tops = [
+            t for t in ev_top_all
+            if (t["label"] in danger) or any(k in t["label"] for k in ["Scream", "Screaming", "Gunshot", "Gasp"])
+        ]
+        danger_tops.sort(key=lambda d: d["score"], reverse=True)
+
+        # If safe preemption happened (ev_s==0 due to strong safe), make sure we DO NOT
+        # return a high-scoring safe label as top[0] to the server. Otherwise server.py
+        # would set isEvent=True. Prefer danger list if available, else a neutral placeholder.
+        if ev_s == 0.0:
+            top_for_server = danger_tops[:3] if danger_tops else [{"label": "None", "score": 0.0}]
+        else:
+            # If we have danger tops, prefer them; else fall back to whatever the model had.
+            top_for_server = (danger_tops[:3] if danger_tops else ev_top_all[:3])
+
         print(
             f"[Tick] db={db:.1f} dBFS base={base_db:.1f} | ev={ev_s:.2f} tx={tx_s:.2f} jump={j_s:.2f} "
-            f"=> risk={risk:.2f} ~ {risk_sm:.2f} | top={ev.get('top_labels', [])[:2]} "
+            f"=> risk={risk:.2f} ~ {risk_sm:.2f} | top={top_for_server[:2]} "
             f"{'ALERT!' if fired else ''}"
         )
         # Transcript prints once in AsyncASR._loop
+        # --------------------------------------------
 
         # Ensure all return values are native Python types for JSON serialization
         return {
             "risk": float(risk_sm),
             "fired": bool(fired),
-            "event_top": [{"label": str(item["label"]), "score": float(item["score"])}
-                         for item in ev.get("top_labels", [])[:3]],
+            "event_top": top_for_server,          # what the server/mobile uses
+            "event_top_all": ev_top_all[:3],      # optional: full tops for debugging/UI
             "db": float(db),
             "db_baseline": float(base_db),
             "transcript": str(transcript),
