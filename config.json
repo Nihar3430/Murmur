@@ -1,0 +1,34 @@
+{
+  "audio": {
+    "sample_rate": 16000,
+    "channels": 1,
+    "chunk_seconds": 0.5,
+    "asr_jump_min": 0.25
+  },
+  "tier2": {
+    "spectrogram_window_seconds": 4.0,
+    "event_model": "panns_cnn14",
+    "event_min_confidence": 0.35,
+    "danger_event_labels": ["Screaming", "Gasp", "Cheering", "Applause"]
+  },
+  "nlp": {
+    "use_fireworks_asr": true,
+    "fireworks_model": "whisper-v3-turbo",
+    "fireworks_endpoint": "https://audio-turbo.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions",
+    "transcribe_model": "base",
+    "llm_model": "accounts/fireworks/models/qwen3-235b-a22b-instruct-2507",
+    "max_new_tokens": 128,
+    "text_high_confidence": 0.8,
+    "alert_on_text_high_conf": true,
+    "text_hold_seconds": 6.0
+  },
+  "tier3": {
+    "high_confidence": 0.7,
+    "medium_confidence": 0.5,
+    "alert_min_score": 0.6
+  },
+  "logging": {
+    "save_wavs": true,
+    "out_dir": "events"
+  }
+}
