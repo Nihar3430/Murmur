@@ -79,10 +79,19 @@ export default function MurmurHomeScreen() {
   // Request notification permissions
   useEffect(() => {
     (async () => {
-      const { status } = await Notifications.requestPermissionsAsync();
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+          allowCriticalAlerts: true, // This enables vibration on iOS even in silent mode
+          provideAppNotificationSettings: true,
+        },
+      });
       if (status !== 'granted') {
         Alert.alert('Permission required', 'Please enable notifications to receive alerts.');
       }
+      console.log('Notification permissions status:', status);
     })();
   }, []);
 
@@ -100,15 +109,30 @@ export default function MurmurHomeScreen() {
     if (risk >= 0.74) {
       console.log('Risk threshold met, sending notification...');
       try {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: '⚠️ Risk Alert',
-            body: event 
-              ? `Risk Level: ${(risk * 100).toFixed(1)}% - ${event}` 
-              : `Risk Level: ${(risk * 100).toFixed(1)}%`,
-            sound: true,
+        const notificationContent: any = {
+          title: '⚠️ Risk Alert',
+          body: event 
+            ? `Risk Level: ${(risk * 100).toFixed(1)}% - ${event}` 
+            : `Risk Level: ${(risk * 100).toFixed(1)}%`,
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.HIGH,
+        };
+
+        // Add platform-specific vibration patterns
+        if (Platform.OS === 'android') {
+          notificationContent.vibrationPattern = [0, 250, 250, 250]; // Vibrate pattern in milliseconds
+          notificationContent.android = {
             priority: Notifications.AndroidNotificationPriority.HIGH,
-          },
+            vibrate: true
+          };
+        } else if (Platform.OS === 'ios') {
+          // For iOS, we need to use critical alerts for vibration
+          notificationContent.sound = 'default';
+          notificationContent.interruptionLevel = 'critical';
+        }
+
+        await Notifications.scheduleNotificationAsync({
+          content: notificationContent,
           trigger: null, // Send immediately
         });
         lastNotificationTime.current = now;
