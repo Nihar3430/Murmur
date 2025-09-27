@@ -15,21 +15,20 @@ const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;(tabs)/index.tsx */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, Text, Dimensions, Alert, Platform } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av'; // For mic access
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import * as Notifications from 'expo-notifications';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import SleekButton from '../../components/SleekButton';
-import Visualizer from '../../components/Visualizer';
-import RiskIndicators from '../../components/RiskIndicators';
+import SleekButton from '../components/SleekButton';
+import Visualizer from '../components/Visualizer';
+import RiskIndicators from '../components/RiskIndicators';
 import {Recording} from "expo-av/build/Audio/Recording";
 
 const { height } = Dimensions.get('window');
 
 // *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
-const SERVER_IP = '10.108.161.163'; // Or your machine's local IP
+const SERVER_IP = '10.108.189.206'; // Or your machine's local IP
 const SERVER_PORT = 5000;
 const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
 
@@ -283,7 +282,6 @@ export default function MurmurHomeScreen() {
 
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
-      <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.contentContainer}>
             <View style={styles.header}>
