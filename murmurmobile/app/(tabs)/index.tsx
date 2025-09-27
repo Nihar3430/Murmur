@@ -189,7 +189,7 @@ export default function MurmurHomeScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.contentContainer}>
             <View style={styles.header}>
-                <Text style={styles.title}>Murmur Safety</Text>
+                <Text style={styles.title}>MURMUR</Text>
             </View>
 
             {isListening ? (
@@ -250,11 +250,11 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   header: {
-    marginTop: 20,
+    marginTop: 40,
     marginBottom: 20,
   },
   title: {
-    fontSize: 28,
+    fontSize: 40,
     fontWeight: '800',
     color: 'white',
     letterSpacing: 2,
