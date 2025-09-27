@@ -46,6 +46,7 @@ Notifications.setNotificationHandler({
 const HEADER_HEIGHT = 90; // Approximate height for Header + margins
 const SLIDE_HEIGHT = height - HEADER_HEIGHT; // The height of the area that slides
 
+
 export default function MurmurHomeScreen() {
   const [isListening, setIsListening] = useState(false);
   const [riskScore, setRiskScore] = useState(0);
@@ -54,13 +55,15 @@ export default function MurmurHomeScreen() {
   const [visualizerData, setVisualizerData] = useState<number[]>([]);
   const [statusMessage, setStatusMessage] = useState('Ready to Listen');
   const [db, setDb] = useState(-99.9); // Raw dB from mic for meter
-
   const recording = useRef<Audio.Recording | null>(null);
+
+
+  // All hooks and logic are declared above
   const mlLoopTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Reanimated values for the max-danger alert animation
   const riskScale = useSharedValue(1);
-  const bgColor = useSharedValue('#1C1C1C');
+  const bgColor = useSharedValue('#000');
 
   // Start contentTranslateY at `SLIDE_HEIGHT` (off-screen bottom)
   const contentTranslateY = useSharedValue(SLIDE_HEIGHT);
@@ -313,63 +316,58 @@ export default function MurmurHomeScreen() {
       pointerEvents: isListening ? 'none' : 'auto', 
   }));
 
+  // Single return statement at the end
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.contentContainer}>
-            <View style={styles.header}>
-                <Text style={styles.title}>MURMUR</Text>
-            </View>
+          <View style={styles.header}>
+            <Text style={styles.title}>MURMUR</Text>
+          </View>
 
-            {/*
-                The initial 'LISTEN' screen content.
-                It animates opacity to disappear/reappear.
-            */}
-            <Animated.View style={[styles.centeredContent, animatedCenteredContentStyle]}>
+          {/* The initial 'LISTEN' screen content. It animates opacity to disappear/reappear. */}
+          <Animated.View style={[styles.centeredContent, animatedCenteredContentStyle]}>
+            <SleekButton
+              label="LISTEN"
+              onPress={handlePress}
+              isListening={isListening}
+              size="large"
+            />
+            <Text style={[styles.statusText, {marginBottom: 0, marginTop: 20}]}>
+              {statusMessage}
+            </Text>
+          </Animated.View>
+
+          {/* The container for the sliding listening screen. It is absolutely positioned right below the header area. */}
+          <View style={styles.slideAreaContainer}>
+            <Animated.View style={[styles.listeningContent, animatedContentStyle]}>
+              <View style={styles.visualizerArea}>
+                <Visualizer isListening={isListening} data={visualizerData} />
+                <Text style={styles.dbText}>Live dBFS: {db.toFixed(1)}</Text>
+              </View>
+
+              <View style={styles.riskArea}>
+                <Text style={styles.riskLabel}>CURRENT RISK</Text>
+                <Animated.Text style={[styles.riskScore, animatedRiskTextStyle]}>
+                  {`${riskScore}%`}
+                </Animated.Text>
+              </View>
+
+              <RiskIndicators triggers={triggers} />
+
+              <View style={styles.buttonArea}>
                 <SleekButton
-                    label="LISTEN"
-                    onPress={handlePress}
-                    isListening={isListening}
-                    size="large"
+                  label="STOP"
+                  onPress={handlePress}
+                  isListening={isListening}
                 />
-                <Text style={[styles.statusText, {marginBottom: 0, marginTop: 20}]}>
-                    {statusMessage}
-                </Text>
+              </View>
+
+              <Text style={styles.statusText}>
+                {statusMessage}
+              </Text>
             </Animated.View>
-
-            {/*
-                The container for the sliding listening screen.
-                It is absolutely positioned right below the header area.
-            */}
-            <View style={styles.slideAreaContainer}>
-                <Animated.View style={[styles.listeningContent, animatedContentStyle]}>
-                    <View style={styles.visualizerArea}>
-                        <Visualizer isListening={isListening} data={visualizerData} />
-                        <Text style={styles.dbText}>Live dBFS: {db.toFixed(1)}</Text>
-                    </View>
-
-                    <View style={styles.riskArea}>
-                        <Text style={styles.riskLabel}>CURRENT RISK</Text>
-                        <Animated.Text style={[styles.riskScore, animatedRiskTextStyle]}>
-                            {`${riskScore}%`}
-                        </Animated.Text>
-                    </View>
-
-                    <RiskIndicators triggers={triggers} />
-
-                    <View style={styles.buttonArea}>
-                        <SleekButton
-                            label="STOP"
-                            onPress={handlePress}
-                            isListening={isListening}
-                        />
-                    </View>
-
-                    <Text style={styles.statusText}>
-                        {statusMessage}
-                    </Text>
-                </Animated.View>
-            </View>
+          </View>
 
         </View>
       </SafeAreaView>
@@ -380,7 +378,7 @@ export default function MurmurHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: '#000',
   },
   safeArea: {
     flex: 1,
@@ -427,8 +425,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingTop: 0, // No extra padding needed here since slideAreaContainer handles the offset
-    // This allows the main animated background to show through (as requested)
-    backgroundColor: 'transparent',
+    backgroundColor: '#000',
   },
   visualizerArea: {
     height: 170,
