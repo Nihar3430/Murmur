@@ -1,21 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, Dimensions, Alert } from 'react-native';
+/* murmurmobile/app/(tabs)/index.tsx */
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { StyleSheet, View, Text, Dimensions, Alert, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context'; // Using recommended import
 import { StatusBar } from 'expo-status-bar';
+import { Audio } from 'expo-av'; // For mic access
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 
 import SleekButton from '../../components/SleekButton';
 import Visualizer from '../../components/Visualizer';
 import RiskIndicators from '../../components/RiskIndicators';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import {Recording} from "expo-av/build/Audio/Recording";
 
 const { height } = Dimensions.get('window');
 
-// --- SIMULATED ML LOGIC OUTPUT STRUCTURE ---
+// *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
+const SERVER_IP = '10.108.189.206';
+const SERVER_PORT = 5000;
+const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
+
+// --- Data Structures ---
 interface TriggerState {
   isJump: boolean;
   isEvent: boolean;
   isText: boolean;
 }
-
 const initialTriggers: TriggerState = { isJump: false, isEvent: false, isText: false };
 
 export default function MurmurHomeScreen() {
@@ -23,109 +32,161 @@ export default function MurmurHomeScreen() {
   const [riskScore, setRiskScore] = useState(0.0);
   const [triggers, setTriggers] = useState<TriggerState>(initialTriggers);
   const [visualizerData, setVisualizerData] = useState<number[]>([]);
+  const [statusMessage, setStatusMessage] = useState('Ready to Listen');
+  const [db, setDb] = useState(-99.9); // Raw dB from mic for meter
+
+  const recording = useRef<Audio.Recording | null>(null);
+  const mlLoopTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Reanimated values for the max-danger alert animation
   const riskScale = useSharedValue(1);
-  const bgColor = useSharedValue('#1C1C1C'); // Dark background
+  const bgColor = useSharedValue('#1C1C1C');
 
-  // --- SIMULATION OF CONTINUOUS ML LOGIC ---
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
+  // --- Helper: Convert Raw dB to Normalized Height (0 to 1) ---
+  const getNormalizedBarHeight = (db: number): number => {
+    const dB_MIN = -60;
+    const dB_MAX = 0;
+    // Map -60..0 to 0..1, clamping outside this range
+    return Math.min(1, Math.max(0, (db - dB_MIN) / (dB_MAX - dB_MIN)));
+  };
 
-    if (isListening) {
-      interval = setInterval(() => {
-        // 1. Simulate Visualizer Data (dBFS/Spectral Data)
-        const newData = Array.from({ length: 30 }, () => Math.random() * 0.4); // Low ambient noise
+  // --- ML Server Communication Loop ---
+  const startMLServerLoop = () => {
+    if (mlLoopTimer.current) clearInterval(mlLoopTimer.current);
 
-        // 2. Simulate Risk Score & Triggers
-        let newRisk = riskScore;
-        let newTriggers = { ...initialTriggers };
+    // 1. Tell the server to initialize and start its ML analysis thread
+    fetch(`${BASE_URL}/start`, { method: 'POST' });
 
-        // 2a. Simple rising risk simulation
-        if (Math.random() < 0.1) { // 10% chance to jump risk
-          newRisk = Math.min(1.0, riskScore + 0.1 + Math.random() * 0.1);
-          newTriggers.isJump = newRisk > 0.2; // dB Jump at 0.2
-        } else if (riskScore > 0) {
-          newRisk = Math.max(0.0, riskScore - 0.05); // Decay
+    // 2. Poll the server periodically for the latest analysis results (tick data)
+    mlLoopTimer.current = setInterval(async () => {
+      try {
+        const response = await fetch(`${BASE_URL}/get_analysis`, { method: 'GET' });
+        const data = await response.json();
+
+        if (data.status === 'analyzing') {
+            const risk = parseFloat(data.risk);
+            setRiskScore(risk);
+            setTriggers({
+                isJump: data.isJump,
+                isEvent: data.isEvent,
+                isText: data.isText,
+            });
+            setStatusMessage(`Last Event: ${data.event_top[0].label} | Transcript: ${data.transcript}`);
+        } else if (data.status === 'warming_up') {
+            setStatusMessage('Server warming up: Calibrating ambient noise...');
+        } else {
+            setStatusMessage(`Server Status: ${data.status}`);
         }
 
-        // 2b. Randomly fire T2 and T3 for demo
-        if (newRisk > 0.4 && Math.random() < 0.3) {
-            newTriggers.isEvent = true;
-        }
-        if (newRisk > 0.6 && Math.random() < 0.2) {
-            newTriggers.isText = true;
-        }
+      } catch (error) {
+        console.error("ML Server connection error:", error);
+        setStatusMessage('Connection Error. Check Server IP/Port.');
+      }
+    }, 500); // Polling every 500ms (matches your `chunk_seconds`)
+  };
 
-        // 2c. Simulate full danger for alert test
-        if (newRisk >= 0.8) {
-             newTriggers.isJump = newTriggers.isEvent = newTriggers.isText = true;
-             newRisk = 1.0;
-        }
-
-        // Apply final state
-        setRiskScore(newRisk);
-        setTriggers(newTriggers);
-
-        // Add loud data if risk is high
-        if (newRisk > 0.5) {
-            for (let i = 0; i < 5; i++) {
-                newData[i] = Math.random() * (0.5 + newRisk * 0.5);
-            }
-        }
-        setVisualizerData(newData);
-
-      }, 250); // Updates 4 times per second
-    } else {
-      setVisualizerData([]);
-      setRiskScore(0.0);
-      setTriggers(initialTriggers);
+  const stopMLServerLoop = () => {
+    if (mlLoopTimer.current) {
+      clearInterval(mlLoopTimer.current);
+      mlLoopTimer.current = null;
     }
+    // Tell the server to shut down its ML analysis thread
+    fetch(`${BASE_URL}/stop`, { method: 'POST' });
+  };
 
-    return () => clearInterval(interval);
-  }, [isListening, riskScore]);
+  // --- AUDIO LOGIC: Start/Stop Recording & Metering ---
+  const startRecording = async () => {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') return Alert.alert('Permission denied', 'Mic permission is required.');
 
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true, playsInSilentModeIOS: true, staysActiveInBackground: true,
+      });
 
-  // --- ALERT & ANIMATION LOGIC (TIER 3 ALERT_MIN_SCORE = 0.6) ---
-  useEffect(() => {
-    const isAlerting = riskScore >= 0.7; // High risk threshold for UI
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        undefined,
+        100 // Interval for metering updates
+      );
+      recording.current = newRecording;
 
-    // Animate the Risk Score for visual urgency
-    riskScale.value = withSpring(isAlerting ? 1.2 : 1, { stiffness: 50, damping: 10 });
+      // Update UI with real dB meter data
+      newRecording.setOnRecordingStatusUpdate(status => {
+        if (status.metering !== undefined) {
+          const newDb = status.metering as number;
+          setDb(newDb);
+          const normalizedHeight = getNormalizedBarHeight(newDb);
 
-    // Animate background color on max danger
-    bgColor.value = withTiming(
-        isAlerting ? '#4C0000' : '#1C1C1C', // Dark Red for max danger
-        { duration: 500 }
-    );
+          // Create a dynamic visualizer wave based on the real dB
+          const newVisualizerData = Array.from({ length: 30 }, (_, i) => {
+              const centerIndex = 15;
+              const distance = Math.abs(i - centerIndex);
+              const factor = 1 - (distance / centerIndex) ** 2; // Parabolic decay from center
+              return normalizedHeight * factor * 0.7 + (Math.random() * 0.1);
+          });
+          setVisualizerData(newVisualizerData);
+        }
+      });
 
-    if (isAlerting && isListening) {
-      // Hypothetical alert logic
-      // Alert.alert("MAX DANGER ALERT", "All three tiers triggered. Reporting authorities.");
+      newRecording.setProgressUpdateInterval(100);
+      setIsListening(true);
+      startMLServerLoop(); // START SERVER COMMUNICATION
+
+    } catch (err) {
+      console.error('Failed to start recording', err);
+      setStatusMessage('Error starting mic. Check server connection.');
+      stopRecording();
     }
-  }, [riskScore, isListening]);
+  };
 
-  // Animated style for the whole view
-  const animatedContainerStyle = useAnimatedStyle(() => {
-    return { backgroundColor: bgColor.value };
-  });
-
-  // Animated style for the Risk Score text
-  const animatedRiskTextStyle = useAnimatedStyle(() => {
-    const riskColor = riskScore >= 0.7 ? '#FF0000' : riskScore >= 0.4 ? '#FFBB33' : '#26D0CE';
-    return {
-      transform: [{ scale: riskScale.value }],
-      color: riskColor,
-    };
-  });
+  const stopRecording = async () => {
+    setIsListening(false);
+    setStatusMessage('Ready to Listen');
+    setVisualizerData([]);
+    setDb(-99.9);
+    setRiskScore(0.0);
+    setTriggers(initialTriggers);
+    stopMLServerLoop(); // STOP SERVER COMMUNICATION
+    try {
+      if (recording.current) {
+        if (recording.current instanceof Recording) {
+          await recording.current.stopAndUnloadAsync();
+        }
+        recording.current = null;
+      }
+    } catch (error) { /* ignored */ }
+  };
 
   const handlePress = useCallback(() => {
-    setIsListening(prev => !prev);
-  }, []);
+    if (isListening) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isListening]);
+
+  // --- ALERT & ANIMATION LOGIC (Driven by riskScore from server) ---
+  useEffect(() => {
+    const isAlerting = riskScore >= 0.7;
+    riskScale.value = withSpring(isAlerting ? 1.2 : 1, { stiffness: 50, damping: 10 });
+    bgColor.value = withTiming(
+        isAlerting ? '#4C0000' : '#1C1C1C',
+        { duration: 500 }
+    );
+  }, [riskScore]);
+
+  // Animated styles...
+  const animatedContainerStyle = useAnimatedStyle(() => ({ backgroundColor: bgColor.value }));
+  const animatedRiskTextStyle = useAnimatedStyle(() => {
+    const riskColor = riskScore >= 0.7 ? '#FF0000' : riskScore >= 0.4 ? '#FFBB33' : '#26D0CE';
+    return { transform: [{ scale: riskScale.value }], color: riskColor };
+  });
 
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
-      <SafeAreaView style={styles.safeArea}>
+      {/* Use safe area context to respect notches/bars */}
+      <SafeAreaView style={[styles.safeArea, { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0, width: '100%' }]} edges={['top', 'bottom']}>
         <StatusBar style="light" />
 
         <View style={styles.header}>
@@ -134,6 +195,7 @@ export default function MurmurHomeScreen() {
 
         <View style={styles.visualizerArea}>
             <Visualizer isListening={isListening} data={visualizerData} />
+            {isListening && <Text style={styles.dbText}>Live dBFS: {db.toFixed(1)}</Text>}
         </View>
 
         <View style={styles.riskArea}>
@@ -154,7 +216,7 @@ export default function MurmurHomeScreen() {
         </View>
 
         <Text style={styles.statusText}>
-            {isListening ? 'Monitoring in Real-Time...' : 'Ready to Listen'}
+            {statusMessage}
         </Text>
 
       </SafeAreaView>
@@ -165,12 +227,13 @@ export default function MurmurHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1C1C1C', // Deep dark background
+    backgroundColor: '#1C1C1C',
   },
   safeArea: {
     flex: 1,
     alignItems: 'center',
     paddingTop: height * 0.05,
+    width: '100%',
   },
   header: {
     marginBottom: 20,
@@ -182,10 +245,15 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   visualizerArea: {
-    height: 150,
+    height: 170,
     justifyContent: 'center',
     alignItems: 'center',
     marginVertical: 40,
+  },
+  dbText: {
+    color: '#888',
+    fontSize: 14,
+    marginTop: 10
   },
   riskArea: {
     alignItems: 'center',
@@ -201,16 +269,18 @@ const styles = StyleSheet.create({
     fontSize: 80,
     fontWeight: '900',
     color: '#26D0CE',
-    minWidth: 200, // Ensure it doesn't jump width
+    minWidth: 200,
     textAlign: 'center',
   },
   buttonArea: {
-    marginTop: 'auto', // Push to bottom
+    marginTop: 'auto',
     marginBottom: 40,
   },
   statusText: {
     color: '#aaa',
     fontSize: 14,
     marginBottom: 10,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   }
 });

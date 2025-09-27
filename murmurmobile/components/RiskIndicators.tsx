@@ -1,3 +1,5 @@
+/* murmurmobile/components/RiskIndicators.tsx */
+
 import React from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import Animated, {
@@ -11,9 +13,9 @@ import Animated, {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface TriggerState {
-  isJump: boolean; // Tier 1: DbJumpMeter (Jumped above threshold)
-  isEvent: boolean; // Tier 2: SpectrogramEventClassifier (Scream/Gasp/Gunshot)
-  isText: boolean; // Tier 3: TriggerTextJudge (Dangerous keyword)
+  isJump: boolean; // Tier 1: DbJumpMeter
+  isEvent: boolean; // Tier 2: SpectrogramEventClassifier
+  isText: boolean; // Tier 3: TriggerTextJudge
 }
 
 interface RiskIndicatorsProps {
@@ -28,7 +30,7 @@ const Indicator = ({ isActive, color, iconName, label }: { isActive: boolean; co
       // Start infinite pulse animation when active
       pulse.value = withRepeat(
         withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-        -1, // -1 means infinite repeat
+        -1, // Infinite repeat
         true // Reverse the animation
       );
     } else {
@@ -68,19 +70,19 @@ export default function RiskIndicators({ triggers }: RiskIndicatorsProps) {
     <View style={styles.container}>
       <Indicator
         isActive={triggers.isJump}
-        color="#FFBB33" // Yellow/Orange
+        color="#FFBB33" // Yellow/Orange (Tier 1: dB Jump)
         iconName="volume-high"
         label="Volume Jump"
       />
       <Indicator
         isActive={triggers.isEvent}
-        color="#FF4B2B" // Red
-        iconName="microphone-alert"
+        color="#FF4B2B" // Red (Tier 2: Event Classification)
+        iconName="microphone-settings"
         label="Event Classified"
       />
       <Indicator
         isActive={triggers.isText}
-        color="#4D4DFF" // Blue/Purple
+        color="#4D4DFF" // Blue/Purple (Tier 3: Text Classification)
         iconName="script-text-outline"
         label="Text Classified"
       />

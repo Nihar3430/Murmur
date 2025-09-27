@@ -121,7 +121,7 @@ class DbJumpMeter:
         s = (delta - clip_lo) / (clip_hi - clip_lo)
         s = 0.0 if s < 0 else (1.0 if s > 1 else s)
 
-        return s, db, base
+        return float(s), float(db), float(base)
 
 
 class AsyncASR:
@@ -147,8 +147,11 @@ class AsyncASR:
                 # Only the LLM decides; no hotword boosts here.
                 tx_score = float(judged.get("confidence", 0.0)) if judged.get("decision", "SAFE") == "DANGER" else 0.0
                 self.last_result = {
-                    "t": time.time(), "transcript": transcript,
-                    "tx_score": tx_score, "judge": judged, "reason": reason
+                    "t": float(time.time()),
+                    "transcript": str(transcript),
+                    "tx_score": float(tx_score),
+                    "judge": judged,
+                    "reason": str(reason)
                 }
                 print(f"[ASR-bg] done (reason: {reason}); tx={tx_score:.2f} judge={judged}")
                 if transcript:
@@ -156,9 +159,11 @@ class AsyncASR:
                     print(f"  transcript: {transcript}")
             except Exception as e:
                 self.last_result = {
-                    "t": time.time(), "transcript": "", "tx_score": 0.0,
+                    "t": float(time.time()),
+                    "transcript": "",
+                    "tx_score": 0.0,
                     "judge": {"decision": "SAFE", "confidence": 0.5, "reason": f"ASR error: {e}"},
-                    "reason": reason
+                    "reason": str(reason)
                 }
 
     def maybe_submit(self, audio: np.ndarray, reason: str) -> bool:
@@ -234,18 +239,18 @@ class ContinuousAnalyzer:
             lab = it["label"]; sc = float(it["score"])
             if any(k in lab for k in ["Scream", "Screaming", "Gunshot", "Gasp"]) or lab in danger:
                 s = max(s, sc)
-        return s
+        return float(s)
 
     def _text_score_fresh(self, last_asr: dict | None, now: float) -> tuple[float, str]:
         if not last_asr:
             return 0.0, ""
         age = now - float(last_asr.get("t", 0.0))
         tx = float(last_asr.get("tx_score", 0.0))
-        transcript = last_asr.get("transcript", "")
+        transcript = str(last_asr.get("transcript", ""))
         # hard drop after hold window (simple + predictable)
         if age > self.text_hold_s:
             return 0.0, transcript
-        return tx, transcript
+        return float(tx), transcript
 
     def tick(self, mic: RingMic) -> dict | None:
         # warm-up to seed baseline and avoid -90 dBFS on first tick
@@ -311,11 +316,16 @@ class ContinuousAnalyzer:
         )
         # Transcript prints once in AsyncASR._loop
 
+        # Ensure all return values are native Python types for JSON serialization
         return {
-            "risk": risk_sm, "fired": fired,
-            "event_top": ev.get("top_labels", [])[:3],
-            "db": db, "db_baseline": base_db,
-            "transcript": transcript,
+            "risk": float(risk_sm),
+            "fired": bool(fired),
+            "event_top": [{"label": str(item["label"]), "score": float(item["score"])}
+                         for item in ev.get("top_labels", [])[:3]],
+            "db": float(db),
+            "db_baseline": float(base_db),
+            "transcript": str(transcript),
+            "tx_score": float(tx_s),
             "audio": x,
         }
 

@@ -1,3 +1,5 @@
+/* murmurmobile/components/Visualizer.tsx */
+
 import React from 'react';
 import { View, StyleSheet, Dimensions, Text } from 'react-native';
 import Animated, {
@@ -15,32 +17,32 @@ const MAX_HEIGHT = 150;
 
 interface VisualizerProps {
   isListening: boolean;
-  // A simulated array of normalized dBFS values (0 to 1)
-  data: number[];
+  data: number[]; // Array of normalized bar heights (0 to 1)
 }
 
 const AnimatedBar = ({ heightValue }: { heightValue: number }) => {
   const barHeight = useSharedValue(0);
 
+  // Update bar height quickly for a real-time feel
   React.useEffect(() => {
     barHeight.value = withTiming(
       heightValue * MAX_HEIGHT,
       {
-        duration: 100, // Fast update to feel real-time
+        duration: 100,
         easing: Easing.linear,
       }
     );
   }, [heightValue]);
 
   const animatedStyle = useAnimatedStyle(() => {
-    // Interpolate the height and opacity
+    // Interpolate the height and color based on loudness (height)
     const opacity = interpolate(barHeight.value, [0, MAX_HEIGHT], [0.3, 1]);
     const backgroundColor = interpolate(barHeight.value, [0, MAX_HEIGHT * 0.5, MAX_HEIGHT],
       ['#26D0CE', '#4D4DFF', '#FF416C'] // Blue to Purple to Red
     );
 
     return {
-      height: barHeight.value + 1, // +1 for minimum visibility
+      height: barHeight.value + 1,
       opacity,
       backgroundColor,
     };
@@ -58,14 +60,7 @@ export default function Visualizer({ isListening, data }: VisualizerProps) {
     );
   }
 
-  // Use the provided data or generate a safe placeholder if data is too small
   const displayData = data.slice(0, BAR_COUNT);
-  const remainingBars = BAR_COUNT - displayData.length;
-
-  // Add zeros for any missing bars to maintain visual width
-  for (let i = 0; i < remainingBars; i++) {
-    displayData.push(0);
-  }
 
   return (
     <View style={styles.container}>
