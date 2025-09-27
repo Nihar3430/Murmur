@@ -1,55 +1,97 @@
 /* murmurmobile/.expo/types/router.d.ts */
 
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Text, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
 interface SleekButtonProps {
   label: string;
   onPress: () => void;
   isListening: boolean;
+  size?: 'normal' | 'large';
 }
 
-export default function SleekButton({ label, onPress, isListening }: SleekButtonProps) {
-  const gradientColors = isListening
-    ? ['#FF416C', '#FF4B2B'] // Red/Orange for 'Listening/Stop'
-    : ['#1A2980', '#26D0CE']; // Blue/Cyan for 'Listen'
+const SleekButton: React.FC<SleekButtonProps> = ({ label, onPress, isListening, size = 'normal' }) => {
+  const scale = useSharedValue(1);
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.95);
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1);
+  };
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: scale.value }],
+    };
+  });
+
+  const isLarge = size === 'large';
+  const buttonStyle = [
+    styles.button,
+    isListening ? styles.stopButton : styles.listenButton,
+    isLarge && styles.largeButton,
+    animatedStyle,
+  ];
+  const textStyle = [styles.text, isLarge && styles.largeText];
 
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={styles.container}>
-      <LinearGradient
-        colors={gradientColors}
-        style={styles.button}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+    <Animated.View style={animatedStyle}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={({ pressed }) => [
+          styles.button,
+          isListening ? styles.stopButton : styles.listenButton,
+          isLarge && styles.largeButton,
+          { opacity: pressed ? 0.8 : 1 },
+        ]}
       >
-        <Text style={styles.text}>{label}</Text>
-      </LinearGradient>
-    </TouchableOpacity>
+        <Text style={textStyle}>{label}</Text>
+      </Pressable>
+    </Animated.View>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: {
+  button: {
+    paddingVertical: 18,
+    paddingHorizontal: 35,
     borderRadius: 50,
-    shadowColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 220,
+    elevation: 5, // for Android shadow
+    shadowColor: '#000', // for iOS shadow
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
+    shadowRadius: 4,
   },
-  button: {
-    width: 200,
-    height: 70,
-    borderRadius: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
+  largeButton: {
+    paddingVertical: 30,
+    paddingHorizontal: 30,
+    borderRadius: 150,
+    width: 250,
+    height: 250,
+  },
+  listenButton: {
+    backgroundColor: '#26D0CE', // A vibrant teal
+  },
+  stopButton: {
+    backgroundColor: '#FF4747', // A clear red
   },
   text: {
     color: 'white',
     fontSize: 22,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  largeText: {
+    fontSize: 40,
   },
 });
+
+export default SleekButton;

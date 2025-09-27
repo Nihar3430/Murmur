@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, Text, Dimensions, Alert, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context'; // Using recommended import
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av'; // For mic access
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import SleekButton from '../../components/SleekButton';
 import Visualizer from '../../components/Visualizer';
@@ -15,8 +15,8 @@ import {Recording} from "expo-av/build/Audio/Recording";
 const { height } = Dimensions.get('window');
 
 // *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
-const SERVER_IP = '10.108.189.206';
-const SERVER_PORT = 5000;
+const SERVER_IP = '10.108.202.234'; // Or your machine's local IP
+const SERVER_PORT = 5001;
 const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
 
 // --- Data Structures ---
@@ -185,40 +185,52 @@ export default function MurmurHomeScreen() {
 
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
-      {/* Use safe area context to respect notches/bars */}
-      <SafeAreaView style={[styles.safeArea, { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0, width: '100%' }]} edges={['top', 'bottom']}>
-        <StatusBar style="light" />
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.contentContainer}>
+            <View style={styles.header}>
+                <Text style={styles.title}>Murmur Safety</Text>
+            </View>
 
-        <View style={styles.header}>
-            <Text style={styles.title}>Murmur Safety</Text>
+            {isListening ? (
+              <>
+                <View style={styles.visualizerArea}>
+                    <Visualizer isListening={isListening} data={visualizerData} />
+                    <Text style={styles.dbText}>Live dBFS: {db.toFixed(1)}</Text>
+                </View>
+
+                <View style={styles.riskArea}>
+                    <Text style={styles.riskLabel}>CURRENT RISK</Text>
+                    <Animated.Text style={[styles.riskScore, animatedRiskTextStyle]}>
+                        {riskScore.toFixed(2)}
+                    </Animated.Text>
+                </View>
+
+                <RiskIndicators triggers={triggers} />
+
+                <View style={styles.buttonArea}>
+                    <SleekButton
+                        label="STOP"
+                        onPress={handlePress}
+                        isListening={isListening}
+                    />
+                </View>
+              </>
+            ) : (
+              <View style={styles.centeredContent}>
+                <SleekButton
+                    label="LISTEN"
+                    onPress={handlePress}
+                    isListening={isListening}
+                    size="large"
+                />
+              </View>
+            )}
+
+            <Text style={styles.statusText}>
+                {statusMessage}
+            </Text>
         </View>
-
-        <View style={styles.visualizerArea}>
-            <Visualizer isListening={isListening} data={visualizerData} />
-            {isListening && <Text style={styles.dbText}>Live dBFS: {db.toFixed(1)}</Text>}
-        </View>
-
-        <View style={styles.riskArea}>
-            <Text style={styles.riskLabel}>CURRENT RISK</Text>
-            <Animated.Text style={[styles.riskScore, animatedRiskTextStyle]}>
-                {riskScore.toFixed(2)}
-            </Animated.Text>
-        </View>
-
-        <RiskIndicators triggers={triggers} />
-
-        <View style={styles.buttonArea}>
-            <SleekButton
-                label={isListening ? 'STOP' : 'LISTEN'}
-                onPress={handlePress}
-                isListening={isListening}
-            />
-        </View>
-
-        <Text style={styles.statusText}>
-            {statusMessage}
-        </Text>
-
       </SafeAreaView>
     </Animated.View>
   );
@@ -231,11 +243,14 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  contentContainer: {
+    flex: 1,
     alignItems: 'center',
-    paddingTop: height * 0.05,
     width: '100%',
   },
   header: {
+    marginTop: 20,
     marginBottom: 20,
   },
   title: {
@@ -243,6 +258,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: 'white',
     letterSpacing: 2,
+  },
+  centeredContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   visualizerArea: {
     height: 170,
