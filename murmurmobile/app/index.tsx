@@ -1,17 +1,4 @@
-/* murmurmobile/// *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
-const SERVER_IP = '10.108.161.1            // Send notification if risk is high
-            console.log('Current risk:', risk, 'isEvent:', data.isEvent);
-            if (data.isEvent || risk >= 0.74) {
-                console.log('Attempting to send notification...');
-                try {
-                    await sendRiskNotification(risk, data.event_top[0].label);
-                    console.log('Notification sent successfully');
-                } catch (error) {
-                    console.error('Failed to send notification:', error);
-                }
-            } // Or your machine's local IP
-const SERVER_PORT = 5000;
-const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;(tabs)/index.tsx */
+// murmurmobile/app/index.tsx
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, Text, Dimensions, Alert, Platform } from 'react-native';
@@ -32,6 +19,10 @@ const SERVER_IP = '10.108.189.206'; // Or your machine's local IP
 const SERVER_PORT = 5000;
 const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
 
+// *** CONSTANT: Define the offset for the final position (e.g., 10% higher) ***
+// 💡 MODIFIED: Increased to 0.2 (20%) to move the screen higher
+const CONTENT_OFFSET_RATIO = 0.16;
+
 // --- Data Structures ---
 interface TriggerState {
   isJump: boolean;
@@ -51,6 +42,10 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// --- CONSTANT: Calculate the area where the content lives (everything below the title) ---
+const HEADER_HEIGHT = 90; // Approximate height for Header + margins
+const SLIDE_HEIGHT = height - HEADER_HEIGHT; // The height of the area that slides
+
 export default function MurmurHomeScreen() {
   const [isListening, setIsListening] = useState(false);
   const [riskScore, setRiskScore] = useState(0.0);
@@ -66,6 +61,9 @@ export default function MurmurHomeScreen() {
   // Reanimated values for the max-danger alert animation
   const riskScale = useSharedValue(1);
   const bgColor = useSharedValue('#1C1C1C');
+
+  // Start contentTranslateY at `SLIDE_HEIGHT` (off-screen bottom)
+  const contentTranslateY = useSharedValue(SLIDE_HEIGHT);
 
   // --- Helper: Convert Raw dB to Normalized Height (0 to 1) ---
   const getNormalizedBarHeight = (db: number): number => {
@@ -83,7 +81,7 @@ export default function MurmurHomeScreen() {
           allowAlert: true,
           allowBadge: true,
           allowSound: true,
-          allowCriticalAlerts: true, // This enables vibration on iOS even in silent mode
+          allowCriticalAlerts: true,
           provideAppNotificationSettings: true,
         },
       });
@@ -97,45 +95,39 @@ export default function MurmurHomeScreen() {
   // Send notification based on risk level
   const sendRiskNotification = async (risk: number, event?: string) => {
     const now = Date.now();
-    console.log('Attempting notification, last notification was:', now - lastNotificationTime.current, 'ms ago');
-    
+
     // Prevent notification spam by requiring 10 seconds between notifications
     if (now - lastNotificationTime.current < 10000) {
-      console.log('Skipping notification - too soon since last one');
       return;
     }
-    
+
     if (risk >= 0.74) {
-      console.log('Risk threshold met, sending notification...');
       try {
         const notificationContent: any = {
           title: '⚠️ Risk Alert',
-          body: event 
-            ? `Risk Level: ${(risk * 100).toFixed(1)}% - ${event}` 
+          body: event
+            ? `Risk Level: ${(risk * 100).toFixed(1)}% - ${event}`
             : `Risk Level: ${(risk * 100).toFixed(1)}%`,
           sound: true,
           priority: Notifications.AndroidNotificationPriority.HIGH,
         };
 
-        // Add platform-specific vibration patterns
         if (Platform.OS === 'android') {
-          notificationContent.vibrationPattern = [0, 250, 250, 250]; // Vibrate pattern in milliseconds
+          notificationContent.vibrationPattern = [0, 250, 250, 250];
           notificationContent.android = {
             priority: Notifications.AndroidNotificationPriority.HIGH,
             vibrate: true
           };
         } else if (Platform.OS === 'ios') {
-          // For iOS, we need to use critical alerts for vibration
           notificationContent.sound = 'default';
           notificationContent.interruptionLevel = 'critical';
         }
 
         await Notifications.scheduleNotificationAsync({
           content: notificationContent,
-          trigger: null, // Send immediately
+          trigger: null,
         });
         lastNotificationTime.current = now;
-        console.log('Notification scheduled successfully');
       } catch (error) {
         console.error('Failed to schedule notification:', error);
       }
@@ -146,10 +138,8 @@ export default function MurmurHomeScreen() {
   const startMLServerLoop = () => {
     if (mlLoopTimer.current) clearInterval(mlLoopTimer.current);
 
-    // 1. Tell the server to initialize and start its ML analysis thread
     fetch(`${BASE_URL}/start`, { method: 'POST' });
 
-    // 2. Poll the server periodically for the latest analysis results (tick data)
     mlLoopTimer.current = setInterval(async () => {
       try {
         const response = await fetch(`${BASE_URL}/get_analysis`, { method: 'GET' });
@@ -164,8 +154,7 @@ export default function MurmurHomeScreen() {
                 isText: data.isText,
             });
             setStatusMessage(`Last Event: ${data.event_top[0].label} | Transcript: ${data.transcript}`);
-            
-            // Send notification if risk is high
+
             if (data.isEvent || risk >= 0.74) {
                 await sendRiskNotification(risk, data.event_top[0].label);
             }
@@ -179,7 +168,7 @@ export default function MurmurHomeScreen() {
         console.error("ML Server connection error:", error);
         setStatusMessage('Connection Error. Check Server IP/Port.');
       }
-    }, 500); // Polling every 500ms (matches your `chunk_seconds`)
+    }, 500);
   };
 
   const stopMLServerLoop = () => {
@@ -187,7 +176,6 @@ export default function MurmurHomeScreen() {
       clearInterval(mlLoopTimer.current);
       mlLoopTimer.current = null;
     }
-    // Tell the server to shut down its ML analysis thread
     fetch(`${BASE_URL}/stop`, { method: 'POST' });
   };
 
@@ -204,22 +192,20 @@ export default function MurmurHomeScreen() {
       const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY,
         undefined,
-        100 // Interval for metering updates
+        100
       );
       recording.current = newRecording;
 
-      // Update UI with real dB meter data
       newRecording.setOnRecordingStatusUpdate(status => {
         if (status.metering !== undefined) {
           const newDb = status.metering as number;
           setDb(newDb);
           const normalizedHeight = getNormalizedBarHeight(newDb);
 
-          // Create a dynamic visualizer wave based on the real dB
           const newVisualizerData = Array.from({ length: 30 }, (_, i) => {
               const centerIndex = 15;
               const distance = Math.abs(i - centerIndex);
-              const factor = 1 - (distance / centerIndex) ** 2; // Parabolic decay from center
+              const factor = 1 - (distance / centerIndex) ** 2;
               return normalizedHeight * factor * 0.7 + (Math.random() * 0.1);
           });
           setVisualizerData(newVisualizerData);
@@ -228,7 +214,7 @@ export default function MurmurHomeScreen() {
 
       newRecording.setProgressUpdateInterval(100);
       setIsListening(true);
-      startMLServerLoop(); // START SERVER COMMUNICATION
+      startMLServerLoop();
 
     } catch (err) {
       console.error('Failed to start recording', err);
@@ -238,13 +224,14 @@ export default function MurmurHomeScreen() {
   };
 
   const stopRecording = async () => {
-    setIsListening(false);
     setStatusMessage('Ready to Listen');
+    setIsListening(false);
+
     setVisualizerData([]);
     setDb(-99.9);
     setRiskScore(0.0);
     setTriggers(initialTriggers);
-    stopMLServerLoop(); // STOP SERVER COMMUNICATION
+    stopMLServerLoop();
     try {
       if (recording.current) {
         if (recording.current instanceof Recording) {
@@ -273,12 +260,58 @@ export default function MurmurHomeScreen() {
     );
   }, [riskScore]);
 
+  // *** UPDATED: Slide-up/Slide-down animation logic for content ***
+  useEffect(() => {
+    // 💡 MODIFIED: finalListeningPosition uses the updated CONTENT_OFFSET_RATIO
+    const finalListeningPosition = -SLIDE_HEIGHT * CONTENT_OFFSET_RATIO;
+    const finalStopPosition = SLIDE_HEIGHT;
+
+    if (isListening) {
+      // Slide up
+      contentTranslateY.value = withSpring(finalListeningPosition, {
+        stiffness: 150,
+        damping: 15,
+        mass: 1,
+        velocity: 4,
+      });
+    } else {
+      // Slide down
+      contentTranslateY.value = withTiming(finalStopPosition, {
+        duration: 500,
+      });
+    }
+  }, [isListening]);
+
+
   // Animated styles...
   const animatedContainerStyle = useAnimatedStyle(() => ({ backgroundColor: bgColor.value }));
+
   const animatedRiskTextStyle = useAnimatedStyle(() => {
     const riskColor = riskScore >= 0.7 ? '#FF0000' : riskScore >= 0.4 ? '#FFBB33' : '#26D0CE';
     return { transform: [{ scale: riskScale.value }], color: riskColor };
   });
+
+  // *** CRITICAL CHANGE: Controls the sliding of the active screen ***
+  const animatedContentStyle = useAnimatedStyle(() => {
+    return {
+        transform: [{ translateY: contentTranslateY.value }],
+        // Content is transparent, revealing the animated app background behind it
+        backgroundColor: 'transparent',
+        pointerEvents: isListening ? 'auto' : 'none',
+    };
+  });
+
+  // Animated style for the main listen screen content to hide/show
+  const listenContentOpacity = useSharedValue(1);
+  useEffect(() => {
+      listenContentOpacity.value = withTiming(isListening ? 0 : 1, { duration: 250 });
+  }, [isListening]);
+
+  const animatedCenteredContentStyle = useAnimatedStyle(() => ({
+      opacity: listenContentOpacity.value,
+      zIndex: isListening ? 0 : 1,
+      pointerEvents: isListening ? 'none' : 'auto', 
+  }));
 
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
@@ -288,44 +321,56 @@ export default function MurmurHomeScreen() {
                 <Text style={styles.title}>MURMUR</Text>
             </View>
 
-            {isListening ? (
-              <>
-                <View style={styles.visualizerArea}>
-                    <Visualizer isListening={isListening} data={visualizerData} />
-                    <Text style={styles.dbText}>Live dBFS: {db.toFixed(1)}</Text>
-                </View>
-
-                <View style={styles.riskArea}>
-                    <Text style={styles.riskLabel}>CURRENT RISK</Text>
-                    <Animated.Text style={[styles.riskScore, animatedRiskTextStyle]}>
-                        {riskScore.toFixed(2)}
-                    </Animated.Text>
-                </View>
-
-                <RiskIndicators triggers={triggers} />
-
-                <View style={styles.buttonArea}>
-                    <SleekButton
-                        label="STOP"
-                        onPress={handlePress}
-                        isListening={isListening}
-                    />
-                </View>
-              </>
-            ) : (
-              <View style={styles.centeredContent}>
+            {/*
+                The initial 'LISTEN' screen content.
+                It animates opacity to disappear/reappear.
+            */}
+            <Animated.View style={[styles.centeredContent, animatedCenteredContentStyle]}>
                 <SleekButton
                     label="LISTEN"
                     onPress={handlePress}
                     isListening={isListening}
                     size="large"
                 />
-              </View>
-            )}
+                <Text style={[styles.statusText, {marginBottom: 0, marginTop: 20}]}>
+                    {statusMessage}
+                </Text>
+            </Animated.View>
 
-            <Text style={styles.statusText}>
-                {statusMessage}
-            </Text>
+            {/*
+                The container for the sliding listening screen.
+                It is absolutely positioned right below the header area.
+            */}
+            <View style={styles.slideAreaContainer}>
+                <Animated.View style={[styles.listeningContent, animatedContentStyle]}>
+                    <View style={styles.visualizerArea}>
+                        <Visualizer isListening={isListening} data={visualizerData} />
+                        <Text style={styles.dbText}>Live dBFS: {db.toFixed(1)}</Text>
+                    </View>
+
+                    <View style={styles.riskArea}>
+                        <Text style={styles.riskLabel}>CURRENT RISK</Text>
+                        <Animated.Text style={[styles.riskScore, animatedRiskTextStyle]}>
+                            {riskScore.toFixed(2)}
+                        </Animated.Text>
+                    </View>
+
+                    <RiskIndicators triggers={triggers} />
+
+                    <View style={styles.buttonArea}>
+                        <SleekButton
+                            label="STOP"
+                            onPress={handlePress}
+                            isListening={isListening}
+                        />
+                    </View>
+
+                    <Text style={styles.statusText}>
+                        {statusMessage}
+                    </Text>
+                </Animated.View>
+            </View>
+
         </View>
       </SafeAreaView>
     </Animated.View>
@@ -346,8 +391,11 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   header: {
-    marginTop: 40,
-    marginBottom: 20,
+    // This defines the area that is NOT covered by the slide-up screen
+    height: HEADER_HEIGHT, 
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
   },
   title: {
     fontSize: 40,
@@ -355,10 +403,32 @@ const styles = StyleSheet.create({
     color: 'white',
     letterSpacing: 2,
   },
+  // Container for the LISTEN button content
   centeredContent: {
-    flex: 1,
+    // Takes up the rest of the vertical space
+    flex: 1, 
     justifyContent: 'center',
     alignItems: 'center',
+    width: '100%',
+  },
+  // *** NEW CONTAINER for the sliding screen area ***
+  slideAreaContainer: {
+    // Absolute position to float over the centeredContent/LISTEN button area
+    position: 'absolute',
+    top: HEADER_HEIGHT, // Starts right below the header
+    height: SLIDE_HEIGHT, // The full sliding height
+    width: '100%',
+    overflow: 'hidden', // Crucial to clip the content as it slides out/in
+  },
+  // The content itself
+  listeningContent: {
+    // Full height of its container (SLIDE_HEIGHT)
+    height: SLIDE_HEIGHT, 
+    alignItems: 'center',
+    width: '100%',
+    paddingTop: 0, // No extra padding needed here since slideAreaContainer handles the offset
+    // This allows the main animated background to show through (as requested)
+    backgroundColor: 'transparent',
   },
   visualizerArea: {
     height: 170,
@@ -390,7 +460,7 @@ const styles = StyleSheet.create({
   },
   buttonArea: {
     marginTop: 'auto',
-    marginBottom: 40,
+    marginBottom: 100, 
   },
   statusText: {
     color: '#aaa',
