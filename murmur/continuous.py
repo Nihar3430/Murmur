@@ -312,7 +312,7 @@ class ContinuousAnalyzer:
         # weighted risk + optional text override
         risk = self.w_event * ev_s + self.w_text * tx_s + self.w_jump * j_s
         if self.text_override and tx_s >= self.text_hi_conf:
-            risk = max(risk, 0.75)  # lift floor to pass typical alert threshold
+            risk = max(risk, 1.00)  # lift floor to pass typical alert threshold
 
         # smooth & alerting
         self.smooth.append(risk)

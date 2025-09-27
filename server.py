@@ -139,7 +139,12 @@ def analysis_loop():
                         last_analysis_result = ensure_json_serializable(sanitized_result)
 
                     if res and res.get("fired"):
-                        print(f"[ALERT FIRED] Score: {res['risk']:.2f}")
+                        filtered_tops = [
+                            event for event in res.get('event_top', [])
+                            if float(event.get('score', 0.0)) >= 0.01
+                        ]
+                        top_str = f"top={filtered_tops}" if filtered_tops else "top=[]"
+                        print(f"[ALERT FIRED] Score: {res['risk']:.2f} | {top_str}")
 
                 except Exception as e:
                     print(f"[ERROR] Error during ML tick: {e}")
@@ -229,7 +234,11 @@ def get_analysis():
 
     # Safely extract the top event label for display
     event_top = res.get("event_top", [])
-    top_label = event_top[0] if event_top else {"label": "None", "score": 0.0}
+    filtered_events = [
+        event for event in event_top 
+        if float(event.get("score", 0.0)) >= 0.01
+    ]
+    top_label = filtered_events[0] if filtered_events else {"label": "None", "score": 0.0}
 
     # Get transcript score safely
     tx_score = res.get('tx_score', 0.0)
@@ -250,7 +259,13 @@ def get_analysis():
         "transcript": str(res.get('transcript', '...')),
         "db": float(res['db']),
         "baseline_db": float(res['db_baseline']),
-        "event_top": [{"label": str(top_label.get('label', 'None')), "score": float(top_label.get('score', 0.0))}],
+        "event_top": [
+            {
+                "label": str(event.get("label", "None")), 
+                "score": float(event.get("score", 0.0))
+            } 
+            for event in filtered_events
+        ] if filtered_events else [{"label": "None", "score": 0.0}],
         "tx_score": float(tx_score)
     }
 

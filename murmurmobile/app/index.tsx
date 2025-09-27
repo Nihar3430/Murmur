@@ -15,7 +15,7 @@ import {Recording} from "expo-av/build/Audio/Recording";
 const { height } = Dimensions.get('window');
 
 // *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
-const SERVER_IP = '10.108.189.206'; // Or your machine's local IP
+const SERVER_IP = '10.108.161.163'; // Or your machine's local IP
 const SERVER_PORT = 5000;
 const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
 
@@ -48,7 +48,7 @@ const SLIDE_HEIGHT = height - HEADER_HEIGHT; // The height of the area that slid
 
 export default function MurmurHomeScreen() {
   const [isListening, setIsListening] = useState(false);
-  const [riskScore, setRiskScore] = useState(0.0);
+  const [riskScore, setRiskScore] = useState(0);
   const lastNotificationTime = useRef<number>(0);
   const [triggers, setTriggers] = useState<TriggerState>(initialTriggers);
   const [visualizerData, setVisualizerData] = useState<number[]>([]);
@@ -106,8 +106,8 @@ export default function MurmurHomeScreen() {
         const notificationContent: any = {
           title: '⚠️ Risk Alert',
           body: event
-            ? `Risk Level: ${(risk * 100).toFixed(1)}% - ${event}`
-            : `Risk Level: ${(risk * 100).toFixed(1)}%`,
+            ? `${event} detected in area!`
+            : `Risk Level over ${(risk * 100).toFixed(1)}%`,
           sound: true,
           priority: Notifications.AndroidNotificationPriority.HIGH,
         };
@@ -147,7 +147,7 @@ export default function MurmurHomeScreen() {
 
         if (data.status === 'analyzing') {
             const risk = parseFloat(data.risk);
-            setRiskScore(risk);
+            setRiskScore(Math.round(risk * 100));
             setTriggers({
                 isJump: data.isJump,
                 isEvent: data.isEvent,
@@ -252,7 +252,7 @@ export default function MurmurHomeScreen() {
 
   // --- ALERT & ANIMATION LOGIC (Driven by riskScore from server) ---
   useEffect(() => {
-    const isAlerting = riskScore >= 0.7;
+    const isAlerting = riskScore >= 70.0;
     riskScale.value = withSpring(isAlerting ? 1.2 : 1, { stiffness: 50, damping: 10 });
     bgColor.value = withTiming(
         isAlerting ? '#4C0000' : '#1C1C1C',
@@ -287,7 +287,7 @@ export default function MurmurHomeScreen() {
   const animatedContainerStyle = useAnimatedStyle(() => ({ backgroundColor: bgColor.value }));
 
   const animatedRiskTextStyle = useAnimatedStyle(() => {
-    const riskColor = riskScore >= 0.7 ? '#FF0000' : riskScore >= 0.4 ? '#FFBB33' : '#26D0CE';
+    const riskColor = riskScore >= 70.0 ? '#FF0000' : riskScore >= 40.0 ? '#FFBB33' : '#26D0CE';
     return { transform: [{ scale: riskScale.value }], color: riskColor };
   });
 
@@ -351,7 +351,7 @@ export default function MurmurHomeScreen() {
                     <View style={styles.riskArea}>
                         <Text style={styles.riskLabel}>CURRENT RISK</Text>
                         <Animated.Text style={[styles.riskScore, animatedRiskTextStyle]}>
-                            {riskScore.toFixed(2)}
+                            {`${riskScore}%`}
                         </Animated.Text>
                     </View>
 
