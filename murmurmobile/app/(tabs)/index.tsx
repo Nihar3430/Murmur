@@ -1,10 +1,24 @@
-/* murmurmobile/app/(tabs)/index.tsx */
+/* murmurmobile/// *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
+const SERVER_IP = '10.108.161.1            // Send notification if risk is high
+            console.log('Current risk:', risk, 'isEvent:', data.isEvent);
+            if (data.isEvent || risk >= 0.74) {
+                console.log('Attempting to send notification...');
+                try {
+                    await sendRiskNotification(risk, data.event_top[0].label);
+                    console.log('Notification sent successfully');
+                } catch (error) {
+                    console.error('Failed to send notification:', error);
+                }
+            } // Or your machine's local IP
+const SERVER_PORT = 5000;
+const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;(tabs)/index.tsx */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, Text, Dimensions, Alert, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av'; // For mic access
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import * as Notifications from 'expo-notifications';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import SleekButton from '../../components/SleekButton';
@@ -15,7 +29,7 @@ import {Recording} from "expo-av/build/Audio/Recording";
 const { height } = Dimensions.get('window');
 
 // *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
-const SERVER_IP = '10.108.189.206'; // Or your machine's local IP
+const SERVER_IP = '10.108.161.163'; // Or your machine's local IP
 const SERVER_PORT = 5000;
 const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
 
@@ -27,16 +41,28 @@ interface TriggerState {
 }
 const initialTriggers: TriggerState = { isJump: false, isEvent: false, isText: false };
 
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
 export default function MurmurHomeScreen() {
   const [isListening, setIsListening] = useState(false);
   const [riskScore, setRiskScore] = useState(0.0);
+  const lastNotificationTime = useRef<number>(0);
   const [triggers, setTriggers] = useState<TriggerState>(initialTriggers);
   const [visualizerData, setVisualizerData] = useState<number[]>([]);
   const [statusMessage, setStatusMessage] = useState('Ready to Listen');
   const [db, setDb] = useState(-99.9); // Raw dB from mic for meter
 
   const recording = useRef<Audio.Recording | null>(null);
-  const mlLoopTimer = useRef<NodeJS.Timeout | null>(null);
+  const mlLoopTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Reanimated values for the max-danger alert animation
   const riskScale = useSharedValue(1);
@@ -48,6 +74,49 @@ export default function MurmurHomeScreen() {
     const dB_MAX = 0;
     // Map -60..0 to 0..1, clamping outside this range
     return Math.min(1, Math.max(0, (db - dB_MIN) / (dB_MAX - dB_MIN)));
+  };
+
+  // Request notification permissions
+  useEffect(() => {
+    (async () => {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please enable notifications to receive alerts.');
+      }
+    })();
+  }, []);
+
+  // Send notification based on risk level
+  const sendRiskNotification = async (risk: number, event?: string) => {
+    const now = Date.now();
+    console.log('Attempting notification, last notification was:', now - lastNotificationTime.current, 'ms ago');
+    
+    // Prevent notification spam by requiring 10 seconds between notifications
+    if (now - lastNotificationTime.current < 10000) {
+      console.log('Skipping notification - too soon since last one');
+      return;
+    }
+    
+    if (risk >= 0.74) {
+      console.log('Risk threshold met, sending notification...');
+      try {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '⚠️ Risk Alert',
+            body: event 
+              ? `Risk Level: ${(risk * 100).toFixed(1)}% - ${event}` 
+              : `Risk Level: ${(risk * 100).toFixed(1)}%`,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: null, // Send immediately
+        });
+        lastNotificationTime.current = now;
+        console.log('Notification scheduled successfully');
+      } catch (error) {
+        console.error('Failed to schedule notification:', error);
+      }
+    }
   };
 
   // --- ML Server Communication Loop ---
@@ -72,6 +141,11 @@ export default function MurmurHomeScreen() {
                 isText: data.isText,
             });
             setStatusMessage(`Last Event: ${data.event_top[0].label} | Transcript: ${data.transcript}`);
+            
+            // Send notification if risk is high
+            if (data.isEvent || risk >= 0.74) {
+                await sendRiskNotification(risk, data.event_top[0].label);
+            }
         } else if (data.status === 'warming_up') {
             setStatusMessage('Server warming up: Calibrating ambient noise...');
         } else {
