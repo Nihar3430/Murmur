@@ -1,3 +1,4 @@
+# murmur/continuous.py
 from __future__ import annotations
 import time, threading, queue, os
 import numpy as np
@@ -57,21 +58,13 @@ class DbJumpMeter:
 
     - If current dB is HIGHER than baseline (room got louder, e.g., -16 -> -6), we raise the baseline SLOWLY.
     - If current dB is LOWER than baseline (room got quieter, e.g., -8 -> -16), we drop the baseline QUICKLY.
-
-    dB are negative in dBFS; "higher"/"louder" means closer to 0. The EMA update form is:
-
-        baseline = alpha * baseline + (1 - alpha) * db
-
-    where alpha_up ~ 0.995 (very slow) for rising baseline, and alpha_down ~ 0.30 (fast) for falling baseline.
-    A small deadband avoids micro-oscillation around the baseline.
     """
     def __init__(
         self,
-        ema_alpha_up: float = 0.995,   # very slow rise toward louder ambient
-        ema_alpha_down: float = 0.30,  # fast drop toward quieter ambient
-        deadband_db: float = 0.25      # ignore tiny wiggles within ±deadband
+        ema_alpha_up: float = 0.995,
+        ema_alpha_down: float = 0.30,
+        deadband_db: float = 0.25
     ):
-        # clamp params to sane ranges
         self.alpha_up = float(min(max(ema_alpha_up, 0.0), 0.999999))
         self.alpha_down = float(min(max(ema_alpha_down, 0.0), 0.999999))
         self.deadband = float(max(deadband_db, 0.0))
@@ -84,41 +77,23 @@ class DbJumpMeter:
         if self.baseline_db is None:
             self.baseline_db = db
             return
-
         base = self.baseline_db
-        # Decide direction with deadband
         if db > base + self.deadband:
-            # Room got louder -> raise baseline slowly (alpha_up ~ 0.995)
             alpha = self.alpha_up
             self.baseline_db = alpha * base + (1.0 - alpha) * db
         elif db < base - self.deadband:
-            # Room got quieter -> drop baseline quickly (alpha_down ~ 0.30)
             alpha = self.alpha_down
             self.baseline_db = alpha * base + (1.0 - alpha) * db
         else:
-            # Within deadband: keep baseline unchanged to prevent jitter
             self.baseline_db = base
 
     def score(self, x: np.ndarray, clip_lo=3.0, clip_hi=18.0) -> tuple[float, float, float]:
-        """
-        Returns (jump_score_0_1, current_db, baseline_db).
-
-        jump_score is computed from positive delta (current louder than baseline),
-        mapped linearly from [clip_lo..clip_hi] dB to [0..1].
-        """
         db = rms_dbfs(x)
-
-        # Asymmetric baseline tracking
         self._update_baseline(db)
         base = float(self.baseline_db)
-
-        # Positive jump only (how much louder than baseline, in dB)
         delta = max(0.0, db - base)
-
-        # Normalize to 0..1 using the clip window
         s = (delta - clip_lo) / (clip_hi - clip_lo)
         s = 0.0 if s < 0 else (1.0 if s > 1 else s)
-
         return float(s), float(db), float(base)
 
 
@@ -142,7 +117,6 @@ class AsyncASR:
             try:
                 transcript = self.tx.transcribe(audio, self.sr)
                 judged = self.tx.judge(transcript)
-                # Only the LLM decides; no hotword boosts here.
                 tx_score = float(judged.get("confidence", 0.0)) if judged.get("decision", "SAFE") == "DANGER" else 0.0
                 self.last_result = {
                     "t": float(time.time()),
@@ -153,7 +127,6 @@ class AsyncASR:
                 }
                 print(f"[ASR-bg] done (reason: {reason}); tx={tx_score:.2f} judge={judged}")
                 if transcript:
-                    # Print the transcript exactly once per ASR completion.
                     print(f"  transcript: {transcript}")
             except Exception as e:
                 self.last_result = {
@@ -165,7 +138,6 @@ class AsyncASR:
                 }
 
     def maybe_submit(self, audio: np.ndarray, reason: str) -> bool:
-        """Try to queue audio; returns True if queued."""
         if self.q.full():
             return False
         try:
@@ -206,7 +178,6 @@ class ContinuousAnalyzer:
         self.asr_bg = AsyncASR(self.text, self.sr)
 
         # meters / weights
-        # NOTE: DbJumpMeter now uses asymmetric EMA (slow up / fast down)
         up_alpha   = cfg["audio"].get("db_base_up_alpha", 0.995)
         down_alpha = cfg["audio"].get("db_base_down_alpha", 0.30)
         deadband   = cfg["audio"].get("db_base_deadband_db", 0.25)
@@ -222,7 +193,7 @@ class ContinuousAnalyzer:
         self.asr_jump_min    = cfg["audio"].get("asr_jump_min", 0.25)
         self.text_hi_conf    = cfg["nlp"].get("text_high_confidence", 0.8)
         self.text_override   = cfg["nlp"].get("alert_on_text_high_conf", True)
-        self.text_hold_s     = cfg["nlp"].get("text_hold_seconds", 6.0)  # how long a text hit influences risk
+        self.text_hold_s     = cfg["nlp"].get("text_hold_seconds", 6.0)
 
         # --- NEW: safe-label preemption (config driven) ---
         self.safe_labels  = set(cfg["tier2"].get("safe_event_labels", ["Applause","Cheering","Fireworks"]))
@@ -239,10 +210,6 @@ class ContinuousAnalyzer:
     def _risk_from_event(self, event_pred: dict) -> float:
         """
         Compute Tier-2 risk from PANNs tops, with SAFE preemption.
-
-        - Danger: Screaming/Gasp/Gunshot (by exact list or obvious substring)
-        - Safe preemption: if a safe label (Applause/Cheering/Fireworks) is
-          confident and ahead of danger by a margin, suppress Tier-2 risk (0.0).
         """
         danger = set(self.cfg["tier2"]["danger_event_labels"])
 
@@ -252,16 +219,11 @@ class ContinuousAnalyzer:
         tops = event_pred.get("top_labels", [])
         for it in tops:
             lab = str(it["label"]); sc = float(it["score"])
-
-            # treat these as danger either by exact list or obvious substring
             if any(k in lab for k in ["Scream", "Screaming", "Gunshot", "Gasp"]) or lab in danger:
                 danger_max = max(danger_max, sc)
-
-            # safe allowlist (exact or obvious)
             if (lab in self.safe_labels) or any(k in lab for k in ["Applause", "Cheering", "Fireworks"]):
                 safe_max = max(safe_max, sc)
 
-        # If a safe label is confident AND clearly beats danger, suppress Tier-2 risk
         if (safe_max >= self.safe_gate) and (safe_max >= danger_max + self.safe_margin):
             return 0.0
 
@@ -273,13 +235,11 @@ class ContinuousAnalyzer:
         age = now - float(last_asr.get("t", 0.0))
         tx = float(last_asr.get("tx_score", 0.0))
         transcript = str(last_asr.get("transcript", ""))
-        # hard drop after hold window (simple + predictable)
         if age > self.text_hold_s:
             return 0.0, transcript
         return float(tx), transcript
 
     def tick(self, mic: RingMic) -> dict | None:
-        # warm-up to seed baseline and avoid -90 dBFS on first tick
         if not mic.ready(self.slice_s):
             print("[Warmup] filling buffer…")
             return None
@@ -312,7 +272,7 @@ class ContinuousAnalyzer:
         # weighted risk + optional text override
         risk = self.w_event * ev_s + self.w_text * tx_s + self.w_jump * j_s
         if self.text_override and tx_s >= self.text_hi_conf:
-            risk = max(risk, 1.00)  # lift floor to pass typical alert threshold
+            risk = max(risk, 1.00)
 
         # smooth & alerting
         self.smooth.append(risk)
@@ -336,11 +296,9 @@ class ContinuousAnalyzer:
             print("[ASR-bg] no result yet")
 
         # --------- Top labels for server/ui ----------
-        # Original tops from the model:
         ev_top_all = [{"label": str(item["label"]), "score": float(item["score"])}
                       for item in ev.get("top_labels", [])]
 
-        # Danger-only tops (for driving the mobile 'isEvent' via server.py)
         danger = set(self.cfg["tier2"]["danger_event_labels"])
         danger_tops = [
             t for t in ev_top_all
@@ -348,13 +306,9 @@ class ContinuousAnalyzer:
         ]
         danger_tops.sort(key=lambda d: d["score"], reverse=True)
 
-        # If safe preemption happened (ev_s==0 due to strong safe), make sure we DO NOT
-        # return a high-scoring safe label as top[0] to the server. Otherwise server.py
-        # would set isEvent=True. Prefer danger list if available, else a neutral placeholder.
         if ev_s == 0.0:
             top_for_server = danger_tops[:3] if danger_tops else [{"label": "None", "score": 0.0}]
         else:
-            # If we have danger tops, prefer them; else fall back to whatever the model had.
             top_for_server = (danger_tops[:3] if danger_tops else ev_top_all[:3])
 
         print(
@@ -362,15 +316,13 @@ class ContinuousAnalyzer:
             f"=> risk={risk:.2f} ~ {risk_sm:.2f} | top={top_for_server[:2]} "
             f"{'ALERT!' if fired else ''}"
         )
-        # Transcript prints once in AsyncASR._loop
         # --------------------------------------------
 
-        # Ensure all return values are native Python types for JSON serialization
         return {
             "risk": float(risk_sm),
             "fired": bool(fired),
-            "event_top": top_for_server,          # what the server/mobile uses
-            "event_top_all": ev_top_all[:3],      # optional: full tops for debugging/UI
+            "event_top": top_for_server,
+            "event_top_all": ev_top_all[:3],
             "db": float(db),
             "db_baseline": float(base_db),
             "transcript": str(transcript),

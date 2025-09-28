@@ -15,7 +15,7 @@ import {Recording} from "expo-av/build/Audio/Recording";
 const { height } = Dimensions.get('window');
 
 // *** IMPORTANT: REPLACE WITH YOUR LAPTOP'S ACTUAL LOCAL IP ADDRESS ***
-const SERVER_IP = '10.108.161.163'; // Or your machine's local IP
+const SERVER_IP = '10.108.189.206'; // Or your machine's local IP
 const SERVER_PORT = 5000;
 const BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
 

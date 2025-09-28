@@ -1,4 +1,8 @@
 {
+  "logging": {
+    "out_dir": "logs",
+    "save_wavs": true
+  },
   "audio": {
     "sample_rate": 16000,
     "channels": 1,

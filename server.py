@@ -12,6 +12,21 @@ import numpy as np
 from flask import Flask, jsonify
 # Import your core ML components from the Murmur project
 from murmur.continuous import ContinuousAnalyzer, RingMic
+# >>> ADDED: we need write_wav to persist the alert snippet
+from murmur.audio_utils import write_wav
+
+import io, wave
+
+def _wav_bytes_from_numpy(audio: np.ndarray, sr: int) -> bytes:
+    x = np.clip(audio, -1.0, 1.0)
+    x_i16 = (x * 32767.0).astype("<i2")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(x_i16.tobytes())
+    return buf.getvalue()
 
 # --- Custom JSON Encoder for NumPy Types ---
 class NpEncoder(json.JSONEncoder):
@@ -48,7 +63,6 @@ def ensure_json_serializable(obj):
 
 # --- CONFIGURATION (Load from config.json) ---
 def load_config(path="config.json"):
-    # Assumes config.json is in the same directory as server.py
     try:
         with open(path, "r") as f:
             return json.load(f)
@@ -63,12 +77,13 @@ SR = cfg["audio"]["sample_rate"]
 CHUNK_S = cfg["audio"]["chunk_seconds"]
 SERVER_PORT = 5000
 
+# Ensure the logging directory exists as soon as module loads
+os.makedirs(cfg["logging"]["out_dir"], exist_ok=True)
+
 # --- GLOBAL ANALYZER STATE ---
 app = Flask(__name__)
 app.json.ensure_ascii = False
 app.json.sort_keys = False
-
-# Set the custom encoder for the Flask app
 app.json_encoder = NpEncoder
 
 analyzer: ContinuousAnalyzer | None = None
@@ -82,25 +97,15 @@ last_analysis_result: dict | None = None
 DANGER_LABELS = set(cfg["tier2"].get("danger_event_labels", []))
 
 def _is_danger_label(name: str) -> bool:
-    """Exact match against config + common substrings, case-insensitive."""
     if not name:
         return False
     n = str(name).strip()
     if n in DANGER_LABELS:
         return True
     up = n.upper()
-    return (
-        "SCREAM" in up or
-        "GASP" in up or
-        "GUNSHOT" in up or
-        "GUNFIRE" in up
-    )
+    return ("SCREAM" in up or "GASP" in up or "GUNSHOT" in up or "GUNFIRE" in up)
 
 def _danger_any_over(res: dict, thresh: float = 0.01) -> bool:
-    """
-    True if any *danger* label score >= thresh
-    Uses event_top_all (preferred) or falls back to event_top.
-    """
     tops = res.get("event_top_all") or res.get("event_top") or []
     for t in tops:
         try:
@@ -113,7 +118,7 @@ def _danger_any_over(res: dict, thresh: float = 0.01) -> bool:
     return False
 
 # ----------------------------------------------------------------------
-# --- ML ANALYSIS THREAD (UNMODIFIED LOGIC) ---
+# --- ML ANALYSIS THREAD (SAVES WAV ON ALERT) ---
 # ----------------------------------------------------------------------
 
 def analysis_loop():
@@ -133,10 +138,19 @@ def analysis_loop():
                 try:
                     res = analyzer.tick(mic)
                     if res:
-                        # Ensure we store a copy of the result before the thread moves on
-                        # Remove audio data and ensure all values are JSON serializable
+                        # Keep JSON-safe copy for /get_analysis
                         sanitized_result = {k: v for k, v in res.items() if k != 'audio'}
                         last_analysis_result = ensure_json_serializable(sanitized_result)
+
+                    # >>> ADDED: Persist WAV snippet whenever an alert fires
+                    if res and res.get("fired") and cfg["logging"].get("save_wavs", False):
+                        ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+                        path = os.path.join(cfg["logging"]["out_dir"], f"event_{ts}.wav")
+                        try:
+                            write_wav(path, res["audio"], SR)
+                            print(f"[ALERT AUDIO SAVED] -> {path}")
+                        except Exception as e:
+                            print(f"[SAVE ERROR] Could not write WAV: {e}")
 
                     if res and res.get("fired"):
                         filtered_tops = [
@@ -170,6 +184,23 @@ def handle_internal_server_error(e):
     response.status_code = 500
     return response
 
+from flask import Response
+
+@app.route("/last_snippet.wav", methods=["GET"])
+def last_snippet():
+    """Return the latest ~5 seconds of audio as a WAV (mono, PCM16)."""
+    global mic
+    if not running or mic is None:
+        return jsonify({"error": "not_running"}), 400
+    try:
+        x = mic.last(5.0)
+        if x is None or len(x) == 0:
+            return jsonify({"error": "no_audio"}), 400
+        wav = _wav_bytes_from_numpy(np.asarray(x, dtype=np.float32), SR)
+        return Response(wav, mimetype="audio/wav")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/start', methods=['POST'])
 def start_analysis():
     global analyzer, mic, running, last_analysis_result
@@ -185,6 +216,9 @@ def start_analysis():
 
         running = True
         last_analysis_result = None
+
+        # Ensure the output directory exists whenever we start
+        os.makedirs(cfg["logging"]["out_dir"], exist_ok=True)
 
         Thread(target=analysis_loop, daemon=True).start()
 
@@ -232,44 +266,37 @@ def get_analysis():
 
     res = last_analysis_result
 
-    # Safely extract the top event label for display
     event_top = res.get("event_top", [])
     filtered_events = [
-        event for event in event_top 
+        event for event in event_top
         if float(event.get("score", 0.0)) >= 0.01
     ]
     top_label = filtered_events[0] if filtered_events else {"label": "None", "score": 0.0}
 
-    # Get transcript score safely
     tx_score = res.get('tx_score', 0.0)
     if isinstance(tx_score, np.floating):
         tx_score = float(tx_score)
 
-    # Build response with explicit type conversion
     response_data = {
         "status": "analyzing",
         "risk": float(res['risk']),
         "fired": bool(res['fired']),
-        # Tier 1 Trigger: isJump is derived from ML logic (current louder than baseline)
         "isJump": bool(float(res['db']) > float(res['db_baseline'])),
-        # Tier 2 Trigger: **danger-only** label >= 0.01
         "isEvent": _danger_any_over(res, 0.01),
-        # Tier 3 Trigger: any transcript + high text score
         "isText": bool(res.get('transcript', '').strip() != "" and float(tx_score) >= cfg["nlp"]["text_high_confidence"]),
         "transcript": str(res.get('transcript', '...')),
         "db": float(res['db']),
         "baseline_db": float(res['db_baseline']),
         "event_top": [
             {
-                "label": str(event.get("label", "None")), 
+                "label": str(event.get("label", "None")),
                 "score": float(event.get("score", 0.0))
-            } 
+            }
             for event in filtered_events
         ] if filtered_events else [{"label": "None", "score": 0.0}],
         "tx_score": float(tx_score)
     }
 
-    # Ensure everything is JSON serializable before returning
     response_data = ensure_json_serializable(response_data)
     return jsonify(response_data), 200
 
@@ -287,4 +314,4 @@ if __name__ == '__main__':
     print("---------------------------------------------------------")
     print("!!! Relaunch the Expo app after starting this server. !!!")
 
-    app.run(host='0.0.0.0', port=SERVER_PORT, debug=False)  # Disable debug to avoid double-logging
+    app.run(host='0.0.0.0', port=SERVER_PORT, debug=False)
