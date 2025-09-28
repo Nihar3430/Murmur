@@ -75,9 +75,8 @@ export default function MurmurHomeScreen() {
   const [statusMessage, setStatusMessage] = useState('Ready to Listen');
   const [db, setDb] = useState(-99.9); // Raw dB from mic for meter
 
-  const [selectedCircle, setSelectedCircle] = useState<Circle | null>(null);
+  const [selectedCircles, setSelectedCircles] = useState<Circle[]>([]); 
   const [isJoinModalVisible, setIsJoinModalVisible] = useState(false);
-  // --- NEW STATE: Create Modal Visibility ---
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false); 
 
   // Mock data for circles dropdown
@@ -106,7 +105,18 @@ export default function MurmurHomeScreen() {
   ]);
 
   const handleCircleSelect = (circle: Circle) => {
-    setSelectedCircle(circle);
+    setSelectedCircles(prevSelected => {
+      // Check if the circle is already in the array
+      const isSelected = prevSelected.some(c => c.id === circle.id);
+
+      if (isSelected) {
+        // Deselect: Remove the circle from the array
+        return prevSelected.filter(c => c.id !== circle.id);
+      } else {
+        // Select: Add the circle to the array
+        return [...prevSelected, circle];
+      }
+    });
   }
 
   const [joinedCircles, setJoinedCircles] = useState<Circle[]>([]);
@@ -314,18 +324,19 @@ export default function MurmurHomeScreen() {
 
   const handleCreateWithData = (name: string) => {
     const newCircle: Circle = {
-      id: Date.now().toString(), // Use timestamp for unique ID (mock)
+      // ... existing circle data creation ...
+      id: Date.now().toString(), 
       name: name,
-      members: 1, // Creator is the first member
+      members: 1, 
       lastActive: 'just now',
-      // Mocked invite code; replace with real backend logic
       inviteCode: Math.floor(100000 + Math.random() * 900000).toString(), 
     };
     
-    // Add to main circles list and joined circles
     setCircles(prevCircles => [...prevCircles, newCircle]);
     setJoinedCircles(prevJoined => [...prevJoined, newCircle]);
-    setSelectedCircle(newCircle);
+    
+    // --- CRITICAL CHANGE 3: Add the new circle to the selected list ---
+    setSelectedCircles(prevSelected => [...prevSelected, newCircle]);
 
     Alert.alert('Success', `Circle "${name}" created with code ${newCircle.inviteCode}!`);
     setIsCreateModalVisible(false);
@@ -333,20 +344,23 @@ export default function MurmurHomeScreen() {
 
 
   const handleJoinWithCode = (code: string) => {
-  const circle = circles.find(c => c.inviteCode === code);
-  if (circle) {
-    if (joinedCircles.some(c => c.id === circle.id)) {
-      Alert.alert('Already Joined', 'You are already a member of this circle');
+    const circle = circles.find(c => c.inviteCode === code);
+    if (circle) {
+      if (joinedCircles.some(c => c.id === circle.id)) {
+        Alert.alert('Already Joined', 'You are already a member of this circle');
+      } else {
+        setJoinedCircles([...joinedCircles, circle]);
+        
+        // --- CRITICAL CHANGE 4: Add the newly joined circle to the selected list ---
+        setSelectedCircles(prevSelected => [...prevSelected, circle]); 
+        
+        Alert.alert('Success', `Joined ${circle.name}!`);
+      }
     } else {
-      setJoinedCircles([...joinedCircles, circle]);
-      setSelectedCircle(circle);
-      Alert.alert('Success', `Joined ${circle.name}!`);
+      Alert.alert('Invalid Code', 'No circle found with this invite code');
     }
-  } else {
-    Alert.alert('Invalid Code', 'No circle found with this invite code');
-  }
-  setIsJoinModalVisible(false);
-};
+    setIsJoinModalVisible(false);
+  };
 
 
 const handleLeaveCircle = (circle: Circle) => {
@@ -363,10 +377,10 @@ const handleLeaveCircle = (circle: Circle) => {
         style: 'destructive',
         onPress: () => {
           setJoinedCircles(circles => circles.filter(c => c.id !== circle.id));
-          // If the user leaves the currently selected circle, unselect it
-          if (selectedCircle?.id === circle.id) {
-            setSelectedCircle(null);
-          }
+          
+          // --- CRITICAL CHANGE 5: Remove the circle from the selected list ---
+          setSelectedCircles(prevSelected => prevSelected.filter(c => c.id !== circle.id)); 
+          
           Alert.alert('Left Circle', `You have left ${circle.name}`);
         }
       }
@@ -475,9 +489,8 @@ const handleLeaveCircle = (circle: Circle) => {
             <CirclesDropdown 
               circles={joinedCircles} 
               onJoinCircle={handleJoinCircle}
-              // --- NEW PROP: Pass the new handler ---
               onCreateCircle={handleCreateCircle} 
-              selectedCircle={selectedCircle}
+              selectedCircles={selectedCircles}
               onSelectCircle={handleCircleSelect}
               onLeaveCircle={handleLeaveCircle}
             />

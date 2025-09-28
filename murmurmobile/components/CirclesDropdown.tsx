@@ -1,31 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { 
-    useSharedValue, 
-    useAnimatedStyle, 
-    withTiming
+    useSharedValue, 
+    useAnimatedStyle, 
+    withTiming,
+    // CRITICAL: Import runOnJS
+    runOnJS
 } from 'react-native-reanimated';
 
 // Set up a constant for the animation duration and interval
 const TRANSITION_DURATION = 500; // ms for fade in/out
-const DISPLAY_INTERVAL = 3000; // ms for how long each text is visible
+const DISPLAY_INTERVAL = 3000; // ms for how long each item is displayed (including transition)
 
 interface Circle {
-  id: string;
+ id: string;
   name: string;
-  members: number;
-  lastActive: string;
-  inviteCode: string;
+  members: number;
+  lastActive: string;
+  inviteCode: string;
 }
 
 interface CirclesDropdownProps {
-  circles: Circle[];
-  selectedCircle: Circle | null;
-  onJoinCircle: () => void;
-  onLeaveCircle: (circle: Circle) => void;
-  onSelectCircle: (circle: Circle) => void;
-  onCreateCircle: () => void; 
+  circles: Circle[];
+  selectedCircles: Circle[]; 
+  onJoinCircle: () => void;
+  onLeaveCircle: (circle: Circle) => void;
+  onSelectCircle: (circle: Circle) => void; 
+  onCreateCircle: () => void; 
 }
 
 export default function CirclesDropdown({ 
@@ -33,101 +35,122 @@ export default function CirclesDropdown({
   onJoinCircle, 
   onLeaveCircle, 
   onSelectCircle,
-  selectedCircle, 
+  selectedCircles, 
   onCreateCircle 
 }: CirclesDropdownProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [showGroupName, setShowGroupName] = useState(true); // Toggles between name (true) and count (false)
-  const toggleDropdown = () => setIsOpen(!isOpen);
+  const [isOpen, setIsOpen] = useState(false);
+  const [displayIndex, setDisplayIndex] = useState(0); 
+  
+  const toggleDropdown = () => setIsOpen(!isOpen);
 
-  // Reanimated shared values for opacity
-  const nameOpacity = useSharedValue(1);
-  const countOpacity = useSharedValue(0);
+  // Reanimated shared values for opacity
+  const itemOpacity = useSharedValue(1); 
+  
+  // --- CRITICAL FIX 1: Wrap the index advancement logic in useCallback ---
+  // This ensures that runOnJS has a stable function reference.
+  const advanceIndex = useCallback(() => {
+    const count = selectedCircles.length;
+    const fullCycleLength = count + (count > 0 ? 1 : 0);
+    
+    setDisplayIndex(prevIndex => (prevIndex + 1) % fullCycleLength);
+    
+    // Start fading the new content IN immediately after the state updates
+    itemOpacity.value = withTiming(1, { duration: TRANSITION_DURATION });
+  }, [selectedCircles.length, itemOpacity]); // Depend on relevant values
+
+  // --- CRITICAL FIX 2: Define the worklet that calls the JS function (runOnJS) ---
+  // This is the clean, explicit way to call a JS function from the UI thread.
+  const handleFadeOutComplete = useCallback(() => {
+    'worklet';
+    runOnJS(advanceIndex)();
+  }, [advanceIndex]);
+
 
   // --- Animation and Interval Logic ---
-  useEffect(() => {
-    // Animation runs only if a group IS selected AND the modal is closed.
-    const shouldAnimate = selectedCircle && !isOpen;
-    
-    if (shouldAnimate) {
-      const intervalId = setInterval(() => {
-        // Toggle the state to switch the text being displayed
-        setShowGroupName(prev => !prev);
-      }, DISPLAY_INTERVAL);
+  useEffect(() => {
+    const count = selectedCircles.length;
+    const shouldAnimate = count >= 1 && !isOpen;
+    const fullCycleLength = count + (count > 0 ? 1 : 0); 
 
-      return () => clearInterval(intervalId);
-    }
-    
-    // Reset state when no circle is selected or modal is open
-    setShowGroupName(true);
-    nameOpacity.value = 1; 
-    countOpacity.value = 0;
-    
-  }, [selectedCircle, isOpen]);
+    if (shouldAnimate && fullCycleLength > 1) {
+      const intervalId = setInterval(() => {
+        // 1. Fade OUT the current item
+        itemOpacity.value = withTiming(0, { duration: TRANSITION_DURATION }, 
+          handleFadeOutComplete // Pass the stable worklet callback
+        );
+        
+      }, DISPLAY_INTERVAL);
 
-  // Effect for the actual fading animation
-  useEffect(() => {
-    if (selectedCircle && !isOpen) {
-        if (showGroupName) {
-            // Fade in Group Name (1), Fade out Count (0)
-            nameOpacity.value = withTiming(1, { duration: TRANSITION_DURATION });
-            countOpacity.value = withTiming(0, { duration: TRANSITION_DURATION });
-        } else {
-            // Fade out Group Name (0), Fade in Count (1)
-            nameOpacity.value = withTiming(0, { duration: TRANSITION_DURATION });
-            countOpacity.value = withTiming(1, { duration: TRANSITION_DURATION });
-        }
-    }
-  }, [showGroupName, selectedCircle, isOpen]);
+      return () => {
+          clearInterval(intervalId);
+          // Cleanup: Reset opacity and index
+          setDisplayIndex(0);
+          itemOpacity.value = 1; 
+      }
+    }
+    
+    // Cleanup/Reset when animation is not running
+    setDisplayIndex(0);
+    itemOpacity.value = 1;
+    
+  }, [selectedCircles.length, isOpen, selectedCircles, handleFadeOutComplete]);
 
-  // --- Animated Styles ---
-  const animatedNameStyle = useAnimatedStyle(() => ({
-    opacity: nameOpacity.value,
-  }));
-  
-  const animatedCountStyle = useAnimatedStyle(() => ({
-    opacity: countOpacity.value,
-    // CRITICAL: Position absolutely over the name text to prevent layout jump
-    position: 'absolute', 
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    textAlign: 'center', 
-    // Match the vertical alignment of the main text style
-    lineHeight: 20, 
-  }));
 
-  // Helper function to get the base text
-  const getDropdownText = (isCount: boolean) => {
-    if (!selectedCircle) {
-      return 'Select Circle';
-    }
-    return isCount ? `1 Group Listening` : selectedCircle.name;
+  // --- UI Logic Helpers ---
+  const getCurrentDisplayContent = () => {
+      const count = selectedCircles.length;
+      
+      if (count === 0) return { key: 'static', text: 'Select Circle(s)', isAnimated: false };
+      
+      if (displayIndex < count) {
+          const circle = selectedCircles[displayIndex];
+          return { key: circle.id, text: circle.name, isAnimated: true };
+      }
+      
+      return { 
+          key: 'count', 
+          text: `${count} Group${count > 1 ? 's' : ''} Listening`, 
+          isAnimated: true 
+      };
   };
 
+  const circleToLeave = selectedCircles[0] || null;
+  const isCircleSelected = (circle: Circle) => 
+    selectedCircles.some(c => c.id === circle.id);
 
-  return (
+  // --- Animated Styles ---
+  const animatedTextStyle = useAnimatedStyle(() => ({
+    opacity: itemOpacity.value,
+  }));
+  
+  const currentContent = getCurrentDisplayContent();
+
+
+  return (
     <View style={styles.container}>
       <TouchableOpacity onPress={toggleDropdown} style={styles.dropdownButton}>
         
         {/* --- Dynamic Text Container --- */}
         <View style={styles.dropdownButtonTextContainer}>
-          {selectedCircle ? (
-            <>
-              {/* Animated Text 1: Group Name */}
-              <Animated.Text style={[styles.dropdownButtonText, animatedNameStyle]}>
-                {selectedCircle.name}
-              </Animated.Text>
-              
-              {/* Animated Text 2: Group Count (positioned absolutely over Text 1) */}
-              <Animated.Text style={[styles.dropdownButtonText, animatedCountStyle]}>
-                1 Group Listening
-              </Animated.Text>
-            </>
+          {currentContent.isAnimated ? (
+            // --- ANIMATED CONTENT PATH ---
+            <Animated.Text 
+              key={currentContent.key} 
+              style={[styles.dropdownButtonText, animatedTextStyle]}
+            >
+              {currentContent.text}
+            </Animated.Text>
           ) : (
-            // Static text when no circle is selected
-            <Text style={styles.dropdownButtonText}>Select Circle</Text>
+            // --- STATIC CONTENT PATH (FIXED) ---
+            <Text 
+              style={[
+                styles.dropdownButtonText, 
+                // Explicitly align text center when static to ensure centering within the container
+                { textAlign: 'center', width: '100%' } 
+              ]}
+            >
+              {currentContent.text}
+            </Text>
           )}
         </View>
         
@@ -157,40 +180,38 @@ export default function CirclesDropdown({
                 <FlatList<Circle>
                   data={circles}
                   keyExtractor={(item) => item.id}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity 
-                      style={styles.dropdownItem} 
-                      onPress={() => {
-                        // The logic here is correct for single-select: select and close
-                        onSelectCircle(item);
-                        toggleDropdown();
-                      }}
-                    >
-                      <View style={styles.dropdownItemContent}>
-                        <View>
-                          <Text style={styles.dropdownItemText}>{item.name}</Text>
+                  renderItem={({ item }) => {
+                    const isSelected = isCircleSelected(item);
+                    return (
+                      <TouchableOpacity 
+                        style={styles.dropdownItem} 
+                        onPress={() => onSelectCircle(item)} 
+                      >
+                        <View style={styles.dropdownItemContent}>
+                          <View>
+                            {/* The item name is already correctly wrapped in <Text> */}
+                            <Text style={styles.dropdownItemText}>{item.name}</Text>
+                          </View>
+                          {isSelected && (
+                            <Ionicons name="checkmark-circle" size={24} color="#26D0CE" />
+                          )}
                         </View>
-                        {/* Checkmark logic is correct for single-select */}
-                        {selectedCircle?.id === item.id && (
-                          <Ionicons name="checkmark" size={24} color="#26D0CE" />
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  )}
+                      </TouchableOpacity>
+                    );
+                  }}
                 />
                 
-                {/* --- LEAVE BUTTON: Wrapped in container for correct width --- */}
-                {selectedCircle && (
+                {circleToLeave && (
                   <View style={styles.leaveButtonContainer}>
                     <TouchableOpacity 
                       style={styles.leaveButton} 
                       onPress={() => {
-                        onLeaveCircle(selectedCircle);
-                        toggleDropdown();
+                        onLeaveCircle(circleToLeave);
+                        toggleDropdown(); 
                       }}
                     >
                       <Text style={styles.leaveButtonText}>
-                          {`Leave ${selectedCircle.name}`}
+                          {`Leave ${circleToLeave.name}`}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -245,24 +266,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
   },
-  // --- NEW CONTAINER FOR ANIMATED TEXT ---
   dropdownButtonTextContainer: {
-    flex: 1, // Takes up space to the left of the icon
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Must specify a height to prevent the button from collapsing during transition
+    flex: 1, 
+    alignItems: 'center', // Centers children horizontally
+    justifyContent: 'center', // Centers children vertically
     height: 20, 
   },
   dropdownButtonText: { 
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-    lineHeight: 20, // Explicitly set line height to match container height
+    lineHeight: 20, 
   },
   dropdownItemText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '500', // Added a medium weight for clarity
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500', 
   },
   modalOverlay: {
     flex: 1,
@@ -326,8 +345,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 59, 48, 0.9)',
     borderRadius: 8,
-    marginTop: 8,
-    marginBottom: 4,
   },
   leaveButtonText: {
     color: '#fff',
