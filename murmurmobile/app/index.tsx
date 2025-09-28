@@ -161,7 +161,7 @@ export default function MurmurHomeScreen() {
         const notificationContent: any = {
           title: '⚠️ Risk Alert',
           body: event
-            ? `${event} detected in area!`
+            ? `Danger detected in area!`
             : `Risk Level over ${(risk * 100).toFixed(1)}%`,
           sound: true,
           priority: Notifications.AndroidNotificationPriority.HIGH,
