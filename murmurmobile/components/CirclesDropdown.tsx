@@ -14,10 +14,19 @@ interface CirclesDropdownProps {
   circles: Circle[];
   selectedCircle: Circle | null;
   onJoinCircle: () => void;
+  onLeaveCircle: (circle: Circle) => void;
   onSelectCircle: (circle: Circle) => void;
+  onCreateCircle: () => void; 
 }
 
-export default function CirclesDropdown({ circles, onJoinCircle, selectedCircle, onSelectCircle }: CirclesDropdownProps) {
+export default function CirclesDropdown({ 
+  circles, 
+  onJoinCircle, 
+  onLeaveCircle, 
+  onSelectCircle,
+  selectedCircle, 
+  onCreateCircle 
+}: CirclesDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const toggleDropdown = () => setIsOpen(!isOpen);
 
@@ -45,37 +54,67 @@ export default function CirclesDropdown({ circles, onJoinCircle, selectedCircle,
           activeOpacity={1} 
           onPress={toggleDropdown}
         >
+          
           <View style={styles.dropdownContent}>
             {circles.length > 0 ? (
-              <FlatList<Circle>
-                data={circles}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={styles.dropdownItem} onPress={() => {
-                    onSelectCircle(item);
-                    toggleDropdown();
-                  }}>
-                    <View style={styles.dropdownItemContent}>
-                      <View>
-                        <Text style={styles.dropdownItemText}>{item.name}</Text>
-                      </View>
-                      {selectedCircle?.id === item.id && (
-                        <Ionicons name="checkmark" size={24} color="#fff" />
-                      )}
-                    </View>
+              <>
+                <FlatList<Circle>
+                  data={circles}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity 
+                      style={styles.dropdownItem} 
+                      onPress={() => {
+                        onSelectCircle(item);
+                        toggleDropdown();
+                      }}
+                    >
+                      <View style={styles.dropdownItemContent}>
+                          <View>
+                            <Text style={styles.dropdownItemText}>{item.name}</Text>
+                          </View>
+                          {selectedCircle?.id === item.id && (
+                            <Ionicons name="checkmark" size={24} color="#fff" />
+                          )}
+                        </View>
+                    </TouchableOpacity>
+                  )}
+                />
+                {selectedCircle && (
+                  <TouchableOpacity 
+                    style={styles.leaveButton} 
+                    onPress={() => {
+                      onLeaveCircle(selectedCircle);
+                      toggleDropdown();
+                    }}
+                  >
+                    <Text style={styles.leaveButtonText}>Leave Circle</Text>
                   </TouchableOpacity>
                 )}
-              />
+              </>
             ) : null}
-            <TouchableOpacity 
-              style={styles.joinButton} 
-              onPress={() => {
-                onJoinCircle();
-                toggleDropdown();
-              }}
-            >
-              <Text style={styles.joinButtonText}>Join Circle</Text>
-            </TouchableOpacity>
+            
+            <View style={styles.actionButtonContainer}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.createButton]} 
+                  onPress={() => {
+                    onCreateCircle();
+                    toggleDropdown();
+                  }}
+                >
+                  <Text style={styles.joinButtonText}>Create Circle</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.joinButton]} 
+                  onPress={() => {
+                    onJoinCircle();
+                    toggleDropdown();
+                  }}
+                >
+                  <Text style={styles.joinButtonText}>Join Circle</Text>
+                </TouchableOpacity>
+            </View>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -87,7 +126,7 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     top: 80,
-    width: '70%',
+    width: '80%',
     textAlign: 'center',
     zIndex: 1000,
     alignSelf: 'center',
@@ -136,14 +175,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
   },
-  joinButton: {
+  
+  actionButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 8, 
+    paddingBottom: 8,
+  },
+  actionButton: {
+    flex: 1,
     padding: 16,
     alignItems: 'center',
-    backgroundColor: 'rgba(91, 91, 91, 0.9)',
     borderRadius: 8,
-    marginTop: 8,
+  },
+  joinButton: {
+    backgroundColor: 'rgba(91, 91, 91, 0.9)',
+  },
+  createButton: {
+    backgroundColor: 'rgba(38, 208, 206, 0.2)',
+    borderColor: '#26D0CE',
+    borderWidth: 1,
   },
   joinButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  leaveButton: {
+    padding: 16,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 59, 48, 0.9)',
+    borderRadius: 8,
+    marginTop: 8,
+    marginBottom: 8, 
+  },
+  leaveButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',

@@ -19,6 +19,7 @@ import Visualizer from '@/components/Visualizer';
 import RiskIndicators from '@/components/RiskIndicators';
 import CirclesDropdown from '@/components/CirclesDropdown';
 import JoinCircleModal from '@/components/JoinCircle';
+import CreateCircleModal from '@/components/CreateCircle'; // Placeholder for new component
 
 const { height } = Dimensions.get('window');
 
@@ -76,6 +77,8 @@ export default function MurmurHomeScreen() {
 
   const [selectedCircle, setSelectedCircle] = useState<Circle | null>(null);
   const [isJoinModalVisible, setIsJoinModalVisible] = useState(false);
+  // --- NEW STATE: Create Modal Visibility ---
+  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false); 
 
   // Mock data for circles dropdown
   const [circles, setCircles] = useState<Circle[]>([
@@ -302,6 +305,32 @@ export default function MurmurHomeScreen() {
   const handleJoinCircle = () => {
     setIsJoinModalVisible(true);
   };
+  
+  // --- NEW: Handle Create Circle action ---
+  const handleCreateCircle = () => {
+    // 3. Show the new Create Circle modal
+    setIsCreateModalVisible(true);
+  };
+
+  const handleCreateWithData = (name: string) => {
+    const newCircle: Circle = {
+      id: Date.now().toString(), // Use timestamp for unique ID (mock)
+      name: name,
+      members: 1, // Creator is the first member
+      lastActive: 'just now',
+      // Mocked invite code; replace with real backend logic
+      inviteCode: Math.floor(100000 + Math.random() * 900000).toString(), 
+    };
+    
+    // Add to main circles list and joined circles
+    setCircles(prevCircles => [...prevCircles, newCircle]);
+    setJoinedCircles(prevJoined => [...prevJoined, newCircle]);
+    setSelectedCircle(newCircle);
+
+    Alert.alert('Success', `Circle "${name}" created with code ${newCircle.inviteCode}!`);
+    setIsCreateModalVisible(false);
+  }
+
 
   const handleJoinWithCode = (code: string) => {
   const circle = circles.find(c => c.inviteCode === code);
@@ -318,6 +347,33 @@ export default function MurmurHomeScreen() {
   }
   setIsJoinModalVisible(false);
 };
+
+
+const handleLeaveCircle = (circle: Circle) => {
+  Alert.alert(
+    'Leave Circle',
+    `Are you sure you want to leave ${circle.name}?`,
+    [
+      {
+        text: 'Cancel',
+        style: 'cancel'
+      },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: () => {
+          setJoinedCircles(circles => circles.filter(c => c.id !== circle.id));
+          // If the user leaves the currently selected circle, unselect it
+          if (selectedCircle?.id === circle.id) {
+            setSelectedCircle(null);
+          }
+          Alert.alert('Left Circle', `You have left ${circle.name}`);
+        }
+      }
+    ]
+  );
+}
+
 
   const handlePress = useCallback(() => {
     if (isListening) {
@@ -371,10 +427,11 @@ export default function MurmurHomeScreen() {
   // *** CRITICAL CHANGE: Controls the sliding of the active screen ***
   const animatedContentStyle = useAnimatedStyle(() => {
     return {
-        transform: [{ translateY: contentTranslateY.value }],
-        // Content is transparent, revealing the animated app background behind it
-        backgroundColor: 'transparent',
-        pointerEvents: isListening ? 'auto' : 'none',
+      // Start position is off-screen, then slides up to the finalListeningPosition
+      transform: [{ translateY: contentTranslateY.value }], 
+      // Content is transparent, revealing the animated app background behind it
+      backgroundColor: 'transparent',
+      pointerEvents: isListening ? 'auto' : 'none',
     };
   });
 
@@ -394,11 +451,22 @@ export default function MurmurHomeScreen() {
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
       <SafeAreaView style={styles.safeArea}>
+        
+        {/* --- MODAL 1: JOIN CIRCLE --- */}
         <JoinCircleModal
           visible={isJoinModalVisible}
           onClose={() => setIsJoinModalVisible(false)}
           onJoin={handleJoinWithCode}
         />
+        
+        {/* --- MODAL 2: CREATE CIRCLE (Placeholder) --- */}
+        {/* Assumes CreateCircleModal takes a name and returns it on creation */}
+        <CreateCircleModal
+            visible={isCreateModalVisible}
+            onClose={() => setIsCreateModalVisible(false)}
+            onCreate={handleCreateWithData}
+        />
+
         <View style={styles.contentContainer}>
           <View style={styles.header}>
             <Text style={styles.title}>MURMUR</Text>
@@ -407,8 +475,11 @@ export default function MurmurHomeScreen() {
             <CirclesDropdown 
               circles={joinedCircles} 
               onJoinCircle={handleJoinCircle}
+              // --- NEW PROP: Pass the new handler ---
+              onCreateCircle={handleCreateCircle} 
               selectedCircle={selectedCircle}
               onSelectCircle={handleCircleSelect}
+              onLeaveCircle={handleLeaveCircle}
             />
           </View>
 
@@ -494,7 +565,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: -120,
     marginBottom: 50,
-    borderRadius: 50,   // adjust number for roundness
+    borderRadius: 50,   // adjust number for roundness
   },
   // Container for the LISTEN button content
   centeredContent: {
