@@ -2,22 +2,23 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, Text, Dimensions, Alert, Platform } from 'react-native';
-import { Audio } from 'expo-av'; // For mic access
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import { Audio } from 'expo-av';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withSpring, 
+  withTiming 
+} from 'react-native-reanimated';
 import * as Notifications from 'expo-notifications';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Recording } from "expo-av/build/Audio/Recording";
 
+// Components (import each one only once)
 import SleekButton from '@/components/SleekButton';
 import Visualizer from '@/components/Visualizer';
 import RiskIndicators from '@/components/RiskIndicators';
 import CirclesDropdown from '@/components/CirclesDropdown';
 import JoinCircleModal from '@/components/JoinCircle';
-import SleekButton from '@/components/SleekButton';
-import Visualizer from '@/components/Visualizer';
-import RiskIndicators from '@/components/RiskIndicators';
-import CirclesDropdown from '@/components/CirclesDropdown';
-import JoinCircleModal from '@/components/JoinCircle';
-import {Recording} from "expo-av/build/Audio/Recording";
 
 const { height } = Dimensions.get('window');
 
