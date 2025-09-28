@@ -12,6 +12,11 @@ import Visualizer from '@/components/Visualizer';
 import RiskIndicators from '@/components/RiskIndicators';
 import CirclesDropdown from '@/components/CirclesDropdown';
 import JoinCircleModal from '@/components/JoinCircle';
+import SleekButton from '@/components/SleekButton';
+import Visualizer from '@/components/Visualizer';
+import RiskIndicators from '@/components/RiskIndicators';
+import CirclesDropdown from '@/components/CirclesDropdown';
+import JoinCircleModal from '@/components/JoinCircle';
 import {Recording} from "expo-av/build/Audio/Recording";
 
 const { height } = Dimensions.get('window');
