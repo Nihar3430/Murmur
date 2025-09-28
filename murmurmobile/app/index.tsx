@@ -2,17 +2,23 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, Text, Dimensions, Alert, Platform } from 'react-native';
-import { Audio } from 'expo-av'; // For mic access
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import { Audio } from 'expo-av';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withSpring, 
+  withTiming 
+} from 'react-native-reanimated';
 import * as Notifications from 'expo-notifications';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Recording } from "expo-av/build/Audio/Recording";
 
+// Components (import each one only once)
 import SleekButton from '@/components/SleekButton';
 import Visualizer from '@/components/Visualizer';
 import RiskIndicators from '@/components/RiskIndicators';
 import CirclesDropdown from '@/components/CirclesDropdown';
 import JoinCircleModal from '@/components/JoinCircle';
-import {Recording} from "expo-av/build/Audio/Recording";
 
 const { height } = Dimensions.get('window');
 
@@ -155,7 +161,7 @@ export default function MurmurHomeScreen() {
         const notificationContent: any = {
           title: '⚠️ Risk Alert',
           body: event
-            ? `${event} detected in area!`
+            ? `Danger detected in area!`
             : `Risk Level over ${(risk * 100).toFixed(1)}%`,
           sound: true,
           priority: Notifications.AndroidNotificationPriority.HIGH,
@@ -388,12 +394,6 @@ export default function MurmurHomeScreen() {
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
       <SafeAreaView style={styles.safeArea}>
-        <CirclesDropdown 
-          circles={joinedCircles} 
-          onJoinCircle={handleJoinCircle}
-          selectedCircle={selectedCircle}
-          onSelectCircle={handleCircleSelect}
-        />
         <JoinCircleModal
           visible={isJoinModalVisible}
           onClose={() => setIsJoinModalVisible(false)}
@@ -402,6 +402,14 @@ export default function MurmurHomeScreen() {
         <View style={styles.contentContainer}>
           <View style={styles.header}>
             <Text style={styles.title}>MURMUR</Text>
+          </View>
+          <View style={styles.dropdownContainer}>
+            <CirclesDropdown 
+              circles={joinedCircles} 
+              onJoinCircle={handleJoinCircle}
+              selectedCircle={selectedCircle}
+              onSelectCircle={handleCircleSelect}
+            />
           </View>
 
           {/* The initial 'LISTEN' screen content. It animates opacity to disappear/reappear. */}
@@ -455,6 +463,11 @@ export default function MurmurHomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  contentContainer: {
+    flex: 1,
+    alignItems: 'center',
+    width: '100%',
+  },
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -462,16 +475,11 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  contentContainer: {
-    flex: 1,
-    alignItems: 'center',
-    width: '100%',
-  },
   header: {
-    // This defines the area that is NOT covered by the slide-up screen
-    marginTop: 50,
-    height: HEADER_HEIGHT, 
-    justifyContent: 'center',
+    // Move title a little down from the top
+    marginTop: 60,
+    height: HEADER_HEIGHT,
+    justifyContent: 'flex-start',
     alignItems: 'center',
     width: '100%',
   },
@@ -480,6 +488,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: 'white',
     letterSpacing: 2,
+  },
+  dropdownContainer: {
+    width: '80%',
+    alignItems: 'center',
+    marginTop: -120,
+    marginBottom: 50,
+    borderRadius: 50,   // adjust number for roundness
   },
   // Container for the LISTEN button content
   centeredContent: {
