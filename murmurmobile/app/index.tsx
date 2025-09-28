@@ -7,9 +7,11 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } fr
 import * as Notifications from 'expo-notifications';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import SleekButton from '../components/SleekButton';
-import Visualizer from '../components/Visualizer';
-import RiskIndicators from '../components/RiskIndicators';
+import SleekButton from '@/components/SleekButton';
+import Visualizer from '@/components/Visualizer';
+import RiskIndicators from '@/components/RiskIndicators';
+import CirclesDropdown from '@/components/CirclesDropdown';
+import JoinCircleModal from '@/components/JoinCircle';
 import {Recording} from "expo-av/build/Audio/Recording";
 
 const { height } = Dimensions.get('window');
@@ -31,6 +33,16 @@ interface TriggerState {
 }
 const initialTriggers: TriggerState = { isJump: false, isEvent: false, isText: false };
 
+// Circle interface for mock data
+interface Circle {
+  id: string;
+  name: string;
+  members: number;
+  lastActive: string;
+  inviteCode: string;
+}
+
+
 // Configure notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -43,7 +55,7 @@ Notifications.setNotificationHandler({
 });
 
 // --- CONSTANT: Calculate the area where the content lives (everything below the title) ---
-const HEADER_HEIGHT = 90; // Approximate height for Header + margins
+const HEADER_HEIGHT = 100; // Approximate height for Header + margins
 const SLIDE_HEIGHT = height - HEADER_HEIGHT; // The height of the area that slides
 
 
@@ -55,6 +67,40 @@ export default function MurmurHomeScreen() {
   const [visualizerData, setVisualizerData] = useState<number[]>([]);
   const [statusMessage, setStatusMessage] = useState('Ready to Listen');
   const [db, setDb] = useState(-99.9); // Raw dB from mic for meter
+
+  const [selectedCircle, setSelectedCircle] = useState<Circle | null>(null);
+  const [isJoinModalVisible, setIsJoinModalVisible] = useState(false);
+
+  // Mock data for circles dropdown
+  const [circles, setCircles] = useState<Circle[]>([
+    {
+      id: '1',
+      name: 'Family Circle',
+      members: 5,
+      lastActive: '2 min ago',
+      inviteCode: '345123'
+    },
+    {
+      id: '2',
+      name: 'College Friends',
+      members: 8,
+      lastActive: '15 min ago',
+      inviteCode: '827364'
+    },
+    {
+      id: '3',
+      name: 'Roommates',
+      members: 3,
+      lastActive: '1 hour ago',
+      inviteCode: '982879'
+    }
+  ]);
+
+  const handleCircleSelect = (circle: Circle) => {
+    setSelectedCircle(circle);
+  }
+
+  const [joinedCircles, setJoinedCircles] = useState<Circle[]>([]);
   const recording = useRef<Audio.Recording | null>(null);
 
 
@@ -245,6 +291,28 @@ export default function MurmurHomeScreen() {
     } catch (error) { /* ignored */ }
   };
 
+  
+  // --- CIRCLES DROPDOWN LOGIC ---
+  const handleJoinCircle = () => {
+    setIsJoinModalVisible(true);
+  };
+
+  const handleJoinWithCode = (code: string) => {
+  const circle = circles.find(c => c.inviteCode === code);
+  if (circle) {
+    if (joinedCircles.some(c => c.id === circle.id)) {
+      Alert.alert('Already Joined', 'You are already a member of this circle');
+    } else {
+      setJoinedCircles([...joinedCircles, circle]);
+      setSelectedCircle(circle);
+      Alert.alert('Success', `Joined ${circle.name}!`);
+    }
+  } else {
+    Alert.alert('Invalid Code', 'No circle found with this invite code');
+  }
+  setIsJoinModalVisible(false);
+};
+
   const handlePress = useCallback(() => {
     if (isListening) {
       stopRecording();
@@ -320,6 +388,17 @@ export default function MurmurHomeScreen() {
   return (
     <Animated.View style={[styles.container, animatedContainerStyle]}>
       <SafeAreaView style={styles.safeArea}>
+        <CirclesDropdown 
+          circles={joinedCircles} 
+          onJoinCircle={handleJoinCircle}
+          selectedCircle={selectedCircle}
+          onSelectCircle={handleCircleSelect}
+        />
+        <JoinCircleModal
+          visible={isJoinModalVisible}
+          onClose={() => setIsJoinModalVisible(false)}
+          onJoin={handleJoinWithCode}
+        />
         <View style={styles.contentContainer}>
           <View style={styles.header}>
             <Text style={styles.title}>MURMUR</Text>
@@ -390,6 +469,7 @@ const styles = StyleSheet.create({
   },
   header: {
     // This defines the area that is NOT covered by the slide-up screen
+    marginTop: 50,
     height: HEADER_HEIGHT, 
     justifyContent: 'center',
     alignItems: 'center',
